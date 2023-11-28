@@ -48,7 +48,7 @@ def parse_args():
 config = parse_args()
 
 # %%
-model = get_lora_model(get_4bit_model(model_name, token), lora_r=64)
+model = get_lora_model(get_4bit_model(model_name, token, config.device), lora_r=64)
 tokenizer = get_tokenizer(model_name, token)
 
 set_seed(seed)
