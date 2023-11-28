@@ -1,4 +1,5 @@
 import collections
+import copy
 import random
 from itertools import cycle
 import torch.distributed as dist
@@ -36,6 +37,7 @@ class FedClient:
         acc_sum, loss_sum = 0, 0
 
         for e in range(self.epoch):
+            optimizer.zero_grad()
             for i, batch_data in enumerate(train_dl):
                 input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
                                                                        batch_data["attention_mask"],
@@ -65,9 +67,9 @@ class LlmFedTrainer:
 
     def __init__(self, model, tokenizer, train_ds, val_dl, config):
         self.model = model.to(config.device)
+        self.lora_module_name = self.get_lora_module_name()
         self.val_dl = val_dl
         self.config = config
-
         self.client_list = []
         base_size = len(train_ds) // config.client_num
         remainder = len(train_ds) % config.client_num
@@ -87,10 +89,10 @@ class LlmFedTrainer:
         server_scheduler = lr_scheduler.CosineAnnealingLR(server_optimizer, T_max=self.config.max_steps,
                                                           eta_min=self.config.lr / 10)
 
-        loop = tqdm(range(self.config.max_steps))
+        loop = tqdm(range(self.config.max_steps), ncols=100)
         for step in loop:
             self.model.train()
-            lora_weight = save_lora_weight(self.model)
+            lora_weight = save_lora_weight(self.model, self.lora_module_name)
             grad_collector = MeanGradCollector()
             acc_sum, loss_sum = 0, 0
             for client in random.sample(self.client_list, self.config.client_num_per_step):
@@ -120,6 +122,13 @@ class LlmFedTrainer:
                 self.model.save_pretrained(f"./result/{self.config.exp_name}/weights-{step + 1}")
         writer.close()
 
+    def get_lora_module_name(self):
+        name_list = []
+        for n, _ in self.model.named_parameters():
+            if "lora" in n:
+                name_list.append(n)
+        return name_list
+
     def validate(self):
         self.model.eval()
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
@@ -145,17 +154,16 @@ class LlmFedTrainer:
         return sum(loss_list) / len(loss_list), sum(acc_list) / len(acc_list)
 
 
-def save_lora_weight(model):
+def save_lora_weight(model, lora_module_name):
     lora_weight = {}
-    for n, p in model.named_parameters():
-        if "lora" in n:
-            lora_weight[n] = p.data.detach().clone()
+    for n in lora_module_name:
+        lora_weight[n] = get_nested_field(model, n).detach().clone()
     return lora_weight
 
 
 def load_lora_weight(model, lora_weight):
     for n, w in lora_weight.items():
-        dict(model.named_parameters())[n].data = w
+        set_nested_field(model, n, torch.nn.Parameter(w.detach().clone()))
 
 
 def calc_grad(lora_weight, model):
@@ -181,3 +189,26 @@ class MeanGradCollector:
         for k, v in self.sum_grad.items():
             self.sum_grad[k] = self.sum_grad[k] / self.total_num / lr
         return self.sum_grad
+
+
+def get_nested_field(obj, field_path):
+    fields = field_path.split('.')
+    current_obj = obj
+    for field in fields:
+        current_obj = getattr(current_obj, field, None)
+        if current_obj is None:
+            return None
+    return current_obj
+
+
+def set_nested_field(obj, field_path, value):
+    fields = field_path.split('.')
+    current_obj = obj
+
+    for field in fields[:-1]:
+        current_obj = getattr(current_obj, field, None)
+        if current_obj is None:
+            return False
+
+    setattr(current_obj, fields[-1], value)
+    return True

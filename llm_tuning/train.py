@@ -24,14 +24,14 @@ class LlmTrainer:
         self.config = config
 
     def train(self):
-        writer = SummaryWriter(f"./result/{self.config.exp_name}/logs")
+        writer = SummaryWriter(f"./result/{self.config.exp_name}/logs", flush_secs=30)
         writer.add_hparams(self.config.__dict__, {})
 
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
         optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
         loss_list, acc_list = [], []
 
-        loop = tqdm(range(self.config.max_steps))
+        loop = tqdm(range(self.config.max_steps), ncols=100)
         for step in loop:
             self.model.train()
             batch_data = next(self.inf_train_iter)

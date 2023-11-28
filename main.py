@@ -40,8 +40,8 @@ def parse_args():
     parser.add_argument("--val_steps", default=100, type=int)
 
     parser.add_argument("--lr", default=5e-4, type=float)
-    parser.add_argument("--client_lr", default=1e-4, type=float)
-    parser.add_argument("--train_mode", default="local", type=str, choices=["local", "fed"])
+    parser.add_argument("--client_lr", default=3e-3, type=float)
+    parser.add_argument("--train_mode", default="fed", type=str, choices=["local", "fed"])
     return parser.parse_args()
 
 
@@ -49,6 +49,7 @@ config = parse_args()
 
 # %%
 model = get_lora_model(get_4bit_model(model_name, token, config.device), lora_r=64)
+
 tokenizer = get_tokenizer(model_name, token)
 
 set_seed(seed)
