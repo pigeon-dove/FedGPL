@@ -44,8 +44,8 @@ class LlmTrainer:
             shift_labels = input_ids[..., 1:].contiguous().view(-1)
             shift_mask = label_mask[..., 1:].contiguous().view(-1)
 
-            loss = (criterion(shift_logits, shift_labels) * shift_mask).sum() / shift_mask.sum()
-            acc = ((shift_logits.argmax(dim=-1) == shift_labels) * shift_mask).sum() / shift_mask.sum()
+            loss = (criterion(shift_logits, shift_labels) * shift_mask).sum() / (shift_mask.sum() + 1e-9)
+            acc = ((shift_logits.argmax(dim=-1) == shift_labels) * shift_mask).sum() / (shift_mask.sum() + 1e-9)
             loss.backward()
 
             loss_list.append(loss.item())

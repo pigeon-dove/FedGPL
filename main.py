@@ -20,7 +20,7 @@ token = "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"
 
 model_name = "meta-llama/Llama-2-7b-chat-hf"
 data_name = "gsm8k"
-seed = 3407
+seed = 1247
 
 
 def parse_args():
@@ -35,7 +35,7 @@ def parse_args():
     parser.add_argument("--max_steps", default=20000, type=int)
     parser.add_argument("--val_steps", default=500, type=int)
     parser.add_argument("--lr", default=5e-4, type=float)
-    parser.add_argument("--client_lr", default=3e-3, type=float)
+    parser.add_argument("--client_lr", default=1e-3, type=float)
     parser.add_argument("--train_mode", default="local", type=str, choices=["local", "fed"])
     return parser.parse_args()
 
