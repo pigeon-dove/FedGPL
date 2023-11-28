@@ -39,7 +39,8 @@ class FedClient:
             for i, batch_data in enumerate(train_dl):
                 input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
                                                                        batch_data["attention_mask"],
-                                                                       batch_data["label_mask"])
+                                                                       batch_data["label_mask"],
+                                                                       device=self.model.device)
                 output = self.model.forward(input_ids, attention_mask)
                 shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
                 shift_labels = input_ids[..., 1:].contiguous().view(-1)
@@ -63,7 +64,7 @@ class FedClient:
 class LlmFedTrainer:
 
     def __init__(self, model, tokenizer, train_ds, val_dl, config):
-        self.model = model.to("cuda")
+        self.model = model.to(config.device)
         self.val_dl = val_dl
         self.config = config
 
@@ -79,7 +80,7 @@ class LlmFedTrainer:
             self.client_list.append(client)
 
     def train(self):
-        writer = SummaryWriter(f"./result/{self.config.exp_name}/logs")
+        writer = SummaryWriter(f"./result/{self.config.exp_name}/logs", flush_secs=30)
         writer.add_hparams(self.config.__dict__, {})
 
         server_optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
@@ -127,7 +128,8 @@ class LlmFedTrainer:
             for step, batch_data in enumerate(tqdm(self.val_dl, desc="validate", position=0)):
                 input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
                                                                        batch_data["attention_mask"],
-                                                                       batch_data["label_mask"])
+                                                                       batch_data["label_mask"],
+                                                                       device=self.model.device)
 
                 output = self.model.forward(input_ids, attention_mask)
                 shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.model.config.vocab_size)

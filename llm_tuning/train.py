@@ -17,7 +17,7 @@ def data_to_device(*args, device="cuda:0"):
 class LlmTrainer:
 
     def __init__(self, model, tokenizer, train_ds, val_dl, config):
-        self.model = model
+        self.model = model.to(config.device)
         self.inf_train_iter = iter(inf_dl_gen(DataLoader(train_ds, batch_size=config.batch_size, shuffle=True)))
         self.tokenizer = tokenizer
         self.val_dl = val_dl

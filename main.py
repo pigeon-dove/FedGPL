@@ -26,16 +26,21 @@ seed = 1247
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp_name", default=time.strftime("%y%m%d-%H%M", time.localtime(time.time())), type=str)
+    parser.add_argument("--device", default="cuda:0", type=str)
+
     parser.add_argument("--client_num", default=50, type=int)
     parser.add_argument("--client_num_per_step", default=4, type=int)
+
     parser.add_argument("--client_epoch", default=1, type=int)
     parser.add_argument("--client_batch_per_step", default=8, type=int)
     parser.add_argument("--batch_size", default=2, type=int)
-    parser.add_argument("--grad_accum_steps", default=4, type=int)
-    parser.add_argument("--max_steps", default=20000, type=int)
-    parser.add_argument("--val_steps", default=500, type=int)
+    parser.add_argument("--grad_accum_steps", default=2, type=int)
+
+    parser.add_argument("--max_steps", default=6000, type=int)
+    parser.add_argument("--val_steps", default=100, type=int)
+
     parser.add_argument("--lr", default=5e-4, type=float)
-    parser.add_argument("--client_lr", default=1e-3, type=float)
+    parser.add_argument("--client_lr", default=1e-4, type=float)
     parser.add_argument("--train_mode", default="local", type=str, choices=["local", "fed"])
     return parser.parse_args()
 
