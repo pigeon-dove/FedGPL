@@ -36,6 +36,7 @@ def parse_args():
     parser.add_argument("--val_steps", default=500, type=int)
     parser.add_argument("--lr", default=5e-4, type=float)
     parser.add_argument("--client_lr", default=3e-3, type=float)
+    parser.add_argument("--train_mode", default="local", type=str, choices=["local", "fed"])
     return parser.parse_args()
 
 
@@ -59,6 +60,9 @@ val_dl = DataLoader(val_ds, batch_size=config.batch_size, shuffle=False)
 test_dl = DataLoader(test_ds, batch_size=config.batch_size, shuffle=False)
 
 # %%
-# trainer = LlmTrainer(model, tokenizer, train_ds, val_dl, config)
-trainer = LlmFedTrainer(model, tokenizer, train_ds, val_dl, config)
+trainer = None
+if config.train_mode == "fed":
+    trainer = LlmFedTrainer(model, tokenizer, train_ds, val_dl, config)
+elif config.train_mode == "local":
+    trainer = LlmTrainer(model, tokenizer, train_ds, val_dl, config)
 trainer.train()
