@@ -86,8 +86,6 @@ class LlmFedTrainer:
         writer.add_hparams(self.config.__dict__, {})
 
         server_optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
-        server_scheduler = lr_scheduler.CosineAnnealingLR(server_optimizer, T_max=self.config.max_steps,
-                                                          eta_min=self.config.lr / 10)
 
         loop = tqdm(range(self.config.max_steps), ncols=100)
         for step in loop:
@@ -101,14 +99,13 @@ class LlmFedTrainer:
                 grad_collector.add(grad)
                 acc_sum += acc
                 loss_sum += loss
-            mean_grad = grad_collector.mean_grad(lr=3e-3)
+            mean_grad = grad_collector.mean_grad(lr=self.config.client_lr)
             mean_acc, mean_loss = acc_sum / self.config.client_num_per_step, loss_sum / self.config.client_num_per_step
             lr = server_optimizer.param_groups[0]['lr']
             for n, p in self.model.named_parameters():
                 if p.requires_grad:
                     p.grad = mean_grad[n]
             server_optimizer.step()
-            server_scheduler.step()
 
             writer.add_scalar("accuracy/train", mean_acc, step)
             writer.add_scalar("loss/train", mean_loss, step)
