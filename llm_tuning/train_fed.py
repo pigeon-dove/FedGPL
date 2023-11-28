@@ -30,7 +30,6 @@ class FedClient:
         self.client_lr = client_lr
 
     def local_train(self, lora_weight):
-        load_lora_weight(self.model, lora_weight)
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
         optimizer = torch.optim.SGD(self.model.parameters(), lr=self.client_lr)
         train_dl = [next(self.cycled_dl) for _ in range(self.batch_num)]
@@ -82,7 +81,7 @@ class LlmFedTrainer:
             self.client_list.append(client)
 
     def train(self):
-        writer = SummaryWriter(f"./result/{self.config.exp_name}/logs", flush_secs=30)
+        writer = SummaryWriter(f"./result/{self.config.exp_name}/logs", flush_secs=10)
         writer.add_hparams(self.config.__dict__, {})
 
         server_optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
@@ -102,6 +101,7 @@ class LlmFedTrainer:
             mean_grad = grad_collector.mean_grad(lr=self.config.client_lr)
             mean_acc, mean_loss = acc_sum / self.config.client_num_per_step, loss_sum / self.config.client_num_per_step
             lr = server_optimizer.param_groups[0]['lr']
+            server_optimizer.zero_grad()
             for n, p in self.model.named_parameters():
                 if p.requires_grad:
                     p.grad = mean_grad[n]
@@ -160,13 +160,14 @@ def save_lora_weight(model, lora_module_name):
 
 def load_lora_weight(model, lora_weight):
     for n, w in lora_weight.items():
-        set_nested_field(model, n, torch.nn.Parameter(w.detach().clone()))
+        get_nested_field(model, n).data.copy_(w)
+    model.train()
 
 
 def calc_grad(lora_weight, model):
     grad = collections.OrderedDict()
     for n, p in lora_weight.items():
-        grad[n] = p.data - dict(model.named_parameters())[n].data
+        grad[n] = (p - get_nested_field(model, n)).detach().clone()
     return grad
 
 

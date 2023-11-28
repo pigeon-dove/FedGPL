@@ -24,7 +24,7 @@ class LlmTrainer:
         self.config = config
 
     def train(self):
-        writer = SummaryWriter(f"./result/{self.config.exp_name}/logs", flush_secs=30)
+        writer = SummaryWriter(f"./result/{self.config.exp_name}/logs", flush_secs=10)
         writer.add_hparams(self.config.__dict__, {})
 
         criterion = torch.nn.CrossEntropyLoss(reduction="none")

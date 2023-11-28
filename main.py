@@ -20,13 +20,13 @@ token = "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"
 
 model_name = "meta-llama/Llama-2-7b-chat-hf"
 data_name = "gsm8k"
-seed = 1247
+seed = 3407
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp_name", default=time.strftime("%y%m%d-%H%M", time.localtime(time.time())), type=str)
-    parser.add_argument("--device", default="cuda:0", type=str)
+    parser.add_argument("--device", default="cuda:1", type=str)
 
     parser.add_argument("--client_num", default=50, type=int)
     parser.add_argument("--client_num_per_step", default=4, type=int)
@@ -34,13 +34,13 @@ def parse_args():
     parser.add_argument("--client_epoch", default=1, type=int)
     parser.add_argument("--client_batch_per_step", default=8, type=int)
     parser.add_argument("--batch_size", default=2, type=int)
-    parser.add_argument("--grad_accum_steps", default=2, type=int)
+    parser.add_argument("--grad_accum_steps", default=4, type=int)
 
     parser.add_argument("--max_steps", default=6000, type=int)
     parser.add_argument("--val_steps", default=100, type=int)
 
     parser.add_argument("--lr", default=5e-4, type=float)
-    parser.add_argument("--client_lr", default=3e-3, type=float)
+    parser.add_argument("--client_lr", default=1e-4, type=float)
     parser.add_argument("--train_mode", default="fed", type=str, choices=["local", "fed"])
     return parser.parse_args()
 
