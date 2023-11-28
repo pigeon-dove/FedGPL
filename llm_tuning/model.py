@@ -20,7 +20,7 @@ def get_4bit_model(model_name, token):
     return model
 
 
-def get_lora_model(model, lora_r=64):
+def get_lora_model(model, lora_r=16):
     lora_config = LoraConfig(r=lora_r,
                              lora_alpha=32,
                              lora_dropout=0.1,

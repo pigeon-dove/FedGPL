@@ -29,9 +29,6 @@ class LlmTrainer:
 
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
         optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
-        scheduler = lr_scheduler.CosineAnnealingLR(optimizer,
-                                                   T_max=self.config.max_steps // self.config.grad_accum_steps,
-                                                   eta_min=self.config.lr / 10)
         loss_list, acc_list = [], []
 
         loop = tqdm(range(self.config.max_steps))
@@ -56,7 +53,6 @@ class LlmTrainer:
 
             if (step + 1) % self.config.grad_accum_steps == 0:
                 optimizer.step()
-                scheduler.step()
                 optimizer.zero_grad()
                 mean_loss = sum(loss_list) / len(loss_list)
                 mean_acc = sum(acc_list) / len(acc_list)
