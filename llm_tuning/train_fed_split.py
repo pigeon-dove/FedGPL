@@ -192,16 +192,14 @@ class LlmFedSplitTrainer:
         return sel_layer, layer_grad_mean_list
 
     def require_grad(self, i):
-        for p in self.model.parameters():
-            p.requires_grad = False
-
         for n, p in self.model.base_model.model.model.layers[2 * i:2 * i + 2].named_parameters():
             if "lora" in n:
                 p.requires_grad = True
 
     def require_grad_all(self):
-        for p in self.model.parameters():
-            p.requires_grad = True
+        for n, p in self.model.named_parameters():
+            if "lora" in n:
+                p.requires_grad = True
 
 
 def save_lora_weight(model, lora_module_name):
