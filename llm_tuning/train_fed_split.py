@@ -120,9 +120,10 @@ class LlmFedSplitTrainer:
 
             writer.add_scalar("accuracy/train", mean_acc, step)
             writer.add_scalar("loss/train", mean_loss, step)
-            writer.add_scalar("selected_layer/train", sel_layer, step)
+
+            writer.add_scalar("select/selected_layer", sel_layer, step)
             for i, g_mean in enumerate(sel_grad_mean_list):
-                writer.add_scalar(f"layer_grad_{i}/select", g_mean, step)
+                writer.add_scalar(f"select/layer_grad_{i}", g_mean, step)
             loop.set_postfix(mean_acc=mean_acc, mean_loss=mean_loss, sel_layer=sel_layer)
 
             if (step + 1) % self.config.val_steps == 0 or (step + 1) == self.config.max_steps:

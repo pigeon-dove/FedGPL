@@ -100,7 +100,6 @@ class LlmFedTrainer:
                 loss_sum += loss
             mean_grad = grad_collector.mean_grad(lr=self.config.client_lr)
             mean_acc, mean_loss = acc_sum / self.config.client_num_per_step, loss_sum / self.config.client_num_per_step
-            lr = server_optimizer.param_groups[0]['lr']
             server_optimizer.zero_grad()
             for n, p in self.model.named_parameters():
                 if p.requires_grad:
@@ -109,7 +108,6 @@ class LlmFedTrainer:
 
             writer.add_scalar("accuracy/train", mean_acc, step)
             writer.add_scalar("loss/train", mean_loss, step)
-            writer.add_scalar("lr/train", lr, step)
             loop.set_postfix(mean_acc=mean_acc, mean_loss=mean_loss)
 
             if (step + 1) % self.config.val_steps == 0 or (step + 1) == self.config.max_steps:

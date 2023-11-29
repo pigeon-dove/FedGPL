@@ -56,16 +56,16 @@ class LlmTrainer:
                 optimizer.zero_grad()
                 mean_loss = sum(loss_list) / len(loss_list)
                 mean_acc = sum(acc_list) / len(acc_list)
-                writer.add_scalar("Loss/train", mean_loss, step)
-                writer.add_scalar("Accuracy/train", mean_acc, step)
+                writer.add_scalar("loss/train", mean_loss, step)
+                writer.add_scalar("accuracy/train", mean_acc, step)
                 loop.set_postfix(mean_acc=mean_acc, mean_loss=mean_loss)
                 loss_list.clear()
                 acc_list.clear()
 
             if (step + 1) % self.config.val_steps == 0 or (step + 1) == self.config.max_steps:
                 val_loss, val_acc = self.validate()
-                writer.add_scalar("Loss/validate", val_loss, step)
-                writer.add_scalar("Accuracy/validate", val_acc, step)
+                writer.add_scalar("loss/validate", val_loss, step)
+                writer.add_scalar("accuracy/validate", val_acc, step)
                 self.model.save_pretrained(f"./result/{self.config.exp_name}/weights-{step + 1}")
 
         writer.close()
