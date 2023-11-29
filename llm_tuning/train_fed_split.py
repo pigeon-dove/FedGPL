@@ -50,8 +50,8 @@ class FedClient:
                 shift_labels = input_ids[..., 1:].contiguous().view(-1)
                 shift_mask = label_mask[..., 1:].contiguous().view(-1)
 
-                loss = (criterion(shift_logits, shift_labels) * shift_mask).sum() / (shift_mask.sum() + 1e-9)
-                acc = ((shift_logits.argmax(dim=-1) == shift_labels) * shift_mask).sum() / (shift_mask.sum() + 1e-9)
+                loss = (criterion(shift_logits, shift_labels) * shift_mask).sum() / shift_mask.sum()
+                acc = ((shift_logits.argmax(dim=-1) == shift_labels) * shift_mask).sum() / shift_mask.sum()
                 loss.backward()
 
                 acc_sum += acc.item()
@@ -88,6 +88,8 @@ class LlmFedSplitTrainer:
         writer = SummaryWriter(f"./result/{self.config.exp_name}/logs", flush_secs=10)
         writer.add_hparams(self.config.__dict__, {})
 
+        self.init_with_val()
+
         server_optimizer = [
             torch.optim.AdamW(self.model.base_model.model.model.layers[2 * i:2 * i + 2].parameters(), lr=self.config.lr)
             for i in range(16)
@@ -100,8 +102,6 @@ class LlmFedSplitTrainer:
             acc_sum, loss_sum = 0, 0
             self.require_grad_all()
             sel_layer, sel_grad_mean_list = self.calc_select_layer()
-            if step < 32:
-                sel_layer = step % 16
             self.require_grad(sel_layer)
             lora_weight = save_lora_weight(self.model, self.lora_module_name)
 
@@ -135,6 +135,31 @@ class LlmFedSplitTrainer:
                 self.model.save_pretrained(f"./result/{self.config.exp_name}/weights-{step + 1}")
         writer.close()
 
+    def init_with_val(self):
+        self.model.train()
+        criterion = torch.nn.CrossEntropyLoss(reduction="none")
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
+        val_iter = iter(self.val_dl)
+
+        loop = tqdm(range(32), desc="init_with_val", position=0, ncols=100)
+        for step in enumerate(loop):
+            batch_data = next(val_iter)
+            input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
+                                                                   batch_data["attention_mask"],
+                                                                   batch_data["label_mask"],
+                                                                   device=self.model.device)
+            output = self.model.forward(input_ids, attention_mask)
+            shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
+            shift_labels = input_ids[..., 1:].contiguous().view(-1)
+            shift_mask = label_mask[..., 1:].contiguous().view(-1)
+
+            loss = (criterion(shift_logits, shift_labels) * shift_mask).sum() / shift_mask.sum()
+            acc = ((shift_logits.argmax(dim=-1) == shift_labels) * shift_mask).sum() / shift_mask.sum()
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+            loop.set_postfix(loss=loss.item(), acc=acc.item())
+
     def get_lora_module_name(self):
         name_list = []
         for n, _ in self.model.named_parameters():
@@ -147,7 +172,7 @@ class LlmFedSplitTrainer:
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
         loss_list, acc_list = [], []
         with torch.no_grad():
-            for step, batch_data in enumerate(tqdm(self.val_dl, desc="validate", position=0)):
+            for step, batch_data in enumerate(tqdm(self.val_dl, desc="validate", position=0, ncols=100)):
                 input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
                                                                        batch_data["attention_mask"],
                                                                        batch_data["label_mask"],
