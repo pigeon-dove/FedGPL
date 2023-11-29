@@ -98,6 +98,7 @@ class LlmFedSplitTrainer:
             self.model.train()
             grad_collector = MeanGradCollector()
             acc_sum, loss_sum = 0, 0
+            self.require_grad_all()
             sel_layer, _ = self.calc_select_layer()
             self.require_grad(sel_layer)
             lora_weight = save_lora_weight(self.model, self.lora_module_name)
@@ -181,8 +182,9 @@ class LlmFedSplitTrainer:
         for i in range(16):
             g_mean, num = 0, 0
             for p in self.model.base_model.model.model.layers[2 * i:2 * i + 2].parameters():
-                g_mean += p.grad.abs().mean().item()
-                num += 1
+                if p.requires_grad:
+                    g_mean += p.grad.abs().mean().item()
+                    num += 1
             g_mean = g_mean / num
             layer_grad_mean_list.append(g_mean)
         sel_layer = np.argmax(layer_grad_mean_list)
@@ -196,6 +198,10 @@ class LlmFedSplitTrainer:
         for n, p in self.model.base_model.model.model.layers[2 * i:2 * i + 2].named_parameters():
             if "lora" in n:
                 p.requires_grad = True
+
+    def require_grad_all(self):
+        for p in self.model.parameters():
+            p.requires_grad = True
 
 
 def save_lora_weight(model, lora_module_name):
