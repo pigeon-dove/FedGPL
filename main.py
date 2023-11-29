@@ -1,17 +1,15 @@
 # %%
-import argparse
 import os
 import time
-from dataclasses import dataclass, field
-
 import torch
+import argparse
 from datasets import load_dataset
 from torch.utils.data import DataLoader, random_split
 
-from llm_tuning.model import get_4bit_model, get_lora_model, get_tokenizer
+from llm_tuning.dataset import LlamaDataset
 from llm_tuning.train import LlmTrainer
-from llm_tuning.dataset import LlamaDataset, inf_dl_gen
 from llm_tuning.train_fed import LlmFedTrainer
+from llm_tuning.model import get_4bit_model, get_lora_model, get_tokenizer
 from llm_tuning.utils import set_seed
 
 os.environ["http_proxy"] = "http://127.0.0.1:7890"

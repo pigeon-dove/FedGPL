@@ -8,8 +8,12 @@ import pandas as pd
 import torch
 from datasets import load_dataset
 from peft import PeftModel
+from torch.utils.data import random_split, DataLoader
 from tqdm import tqdm
 from transformers import LlamaTokenizer, AutoModelForCausalLM
+
+from llm_tuning.dataset import LlamaDataset
+from llm_tuning.utils import set_seed
 
 os.environ["http_proxy"] = "http://127.0.0.1:7890"
 os.environ["https_proxy"] = "http://127.0.0.1:7890"
@@ -18,12 +22,17 @@ token = "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"
 model_name = "meta-llama/Llama-2-7b-chat-hf"
 data_name = "gsm8k"
 
+exp_name = "231108-1424"
+weights_file = "weights-11200"
+seed = 3407
+batch_size = 2
+instruction = "Please solve the following math problem and provide the answer in the format '### <number>' at the end."
+
 # %%
 model = AutoModelForCausalLM.from_pretrained(
     pretrained_model_name_or_path=model_name,
-    # device_map={"": 0},
     device_map="auto",
-    torch_dtype=torch.float16,
+    torch_dtype=torch.bfloat16,
     trust_remote_code=True,
     token=token,
 )
@@ -34,17 +43,22 @@ tokenizer.sep_token = tokenizer.eos_token
 tokenizer.cls_token = tokenizer.eos_token
 tokenizer.mask_token = tokenizer.eos_token
 
-# model = PeftModel.from_pretrained(model, "./result/231030-1543/weights-11000", device_map={"": 0})
-# model = PeftModel.from_pretrained(model, "./result/231101-1944/weights-10499", device_map={"": 0})
-# model = PeftModel.from_pretrained(model, "./result/231102-1637/weights-14800", device_map={"": 0})
-# model = PeftModel.from_pretrained(model, "./result/231103-1853/weights-25000", device_map={"": 0})
-# model = PeftModel.from_pretrained(model, "./result/231107-1456/weights-18400", device_map={"": 1})
-# model = PeftModel.from_pretrained(model, "./result/231108-1424/weights-11200", device_map={"": 0})
-model = PeftModel.from_pretrained(model, "./result/231108-1424/weights-11200", device_map="auto")
+model = PeftModel.from_pretrained(model, f"./result/{exp_name}/{weights_file}", device_map="auto")
 model = model.merge_and_unload()
 model.eval()
 
-test_ds = load_dataset(data_name, "main", split="test")
+set_seed(seed)
+full_dataset = torch.utils.data.ConcatDataset([
+    LlamaDataset(load_dataset(data_name, "main", split="train"), tokenizer, max_length=512),
+    LlamaDataset(load_dataset(data_name, "main", split="test"), tokenizer, max_length=512)
+])
+total_size = len(full_dataset)
+train_size = int(0.6 * total_size)
+val_size = int(0.2 * total_size)
+test_size = total_size - train_size - val_size
+train_ds, val_ds, test_ds = random_split(full_dataset, [train_size, val_size, test_size])
+val_dl = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
+test_dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
 
 
 # %%
@@ -63,7 +77,6 @@ def get_correct_ans(s):
     try:
         return parse_correct(s)
     except ValueError as e:
-        # print(e, end="")
         return math.nan
 
 
@@ -72,7 +85,6 @@ exp_dict = {"question": [], "answer": [], "output": [], "correct": [], "output_n
 loop = tqdm(test_ds, desc="test", position=0)
 for data in loop:
     question = data["question"]
-    instruction = "Please solve the following math problem and provide the answer in the format '### <number>' at the end."
     prompt = f"[INST] <<SYS>>\n{instruction}\n<</SYS>>\n{question} [/INST]"
     input = tokenizer(prompt, return_tensors="pt").to(model.device)
 
@@ -85,16 +97,6 @@ for data in loop:
         top_p=1,
         temperature=1,
         eos_token_id=tokenizer.eos_token_id)
-
-    # generate_ids = model.generate(
-    #     input_ids=input['input_ids'],
-    #     do_sample=True,
-    #     top_k=50,
-    #     top_p=0.9,
-    #     num_return_sequences=1,
-    #     repetition_penalty=1.1,
-    #     max_new_tokens=1024,
-    #     eos_token_id=tokenizer.eos_token_id)
 
     output = tokenizer.batch_decode(generate_ids)[0]
     correct = get_correct_ans(answer)
@@ -114,5 +116,4 @@ for data in loop:
                      mean_acc=sum(exp_dict["acc"]) / len(exp_dict["acc"]))
 
 
-filename = time.strftime("%y%m%d-%H%M", time.localtime(time.time()))
-pd.DataFrame(exp_dict).to_csv(f"./result/{filename}.csv", index=True)
+pd.DataFrame(exp_dict).to_csv(f"./result/{exp_name}/eval_ans_acc.csv", index=True)
