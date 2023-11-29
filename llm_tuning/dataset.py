@@ -47,7 +47,9 @@ class LlamaDataset(Dataset):
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "label_mask": label_mask,
-            "origin_token_length": question_token.length + answer_token.length
+            "origin_token_length": question_token.length + answer_token.length,
+            "question": data["question"],
+            "answer": data["answer"]
         }
 
 

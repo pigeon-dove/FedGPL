@@ -22,8 +22,8 @@ token = "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"
 model_name = "meta-llama/Llama-2-7b-chat-hf"
 data_name = "gsm8k"
 
-exp_name = "231108-1424"
-weights_file = "weights-11200"
+exp_name = ""
+weights_file = ""
 seed = 3407
 batch_size = 2
 instruction = "Please solve the following math problem and provide the answer in the format '### <number>' at the end."
@@ -57,8 +57,6 @@ train_size = int(0.6 * total_size)
 val_size = int(0.2 * total_size)
 test_size = total_size - train_size - val_size
 train_ds, val_ds, test_ds = random_split(full_dataset, [train_size, val_size, test_size])
-val_dl = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
-test_dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
 
 
 # %%
