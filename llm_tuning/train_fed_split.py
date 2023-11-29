@@ -192,7 +192,6 @@ class LlmFedSplitTrainer:
         return sum(loss_list) / len(loss_list), sum(acc_list) / len(acc_list)
 
     def calc_select_layer(self):
-        layer_grad_mean_list = []
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
         self.model.zero_grad()
         val_iter = iter(self.val_dl)
@@ -209,14 +208,13 @@ class LlmFedSplitTrainer:
 
             loss = (criterion(shift_logits, shift_labels) * shift_mask).sum() / (shift_mask.sum() + 1e-9)
             loss.backward()
-        for i in range(16):
-            g_mean, num = 0, 0
-            for p in self.model.base_model.model.model.layers[2 * i:2 * i + 2].parameters():
-                if p.requires_grad:
-                    g_mean += p.grad.abs().mean().item()
-                    num += 1
-            g_mean = g_mean / num
-            layer_grad_mean_list.append(g_mean)
+        layer_grad_mean_list = []
+        with torch.no_grad():
+            for i in range(16):
+                layer_params = self.model.base_model.model.model.layers[2 * i:2 * i + 2].parameters()
+                layer_gradients = torch.cat([p.grad.view(-1) for p in layer_params if p.requires_grad])
+                gradient_norm = torch.norm(layer_gradients, p=2)
+                layer_grad_mean_list.append(gradient_norm.item())
         sel_layer = np.argmax(layer_grad_mean_list)
         self.model.zero_grad()
         return sel_layer, layer_grad_mean_list

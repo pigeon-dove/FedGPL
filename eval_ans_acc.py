@@ -32,7 +32,7 @@ instruction = "Please solve the following math problem and provide the answer in
 model = AutoModelForCausalLM.from_pretrained(
     pretrained_model_name_or_path=model_name,
     device_map="auto",
-    torch_dtype=torch.bfloat16,
+    torch_dtype=torch.float16,
     trust_remote_code=True,
     token=token,
 )
@@ -90,7 +90,7 @@ for data in loop:
 
     generate_ids = model.generate(
         input_ids=input['input_ids'],
-        max_new_tokens=1024,
+        max_new_tokens=512,
         do_sample=False,
         top_p=1,
         temperature=1,
