@@ -33,7 +33,7 @@ class FedClient:
 
     def local_train(self, lora_weight, i):
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
-        optimizer = torch.optim.SGD(self.model.base_model.model.model.layers[2 * i:2 * i + 2].named_parameters(),
+        optimizer = torch.optim.SGD(self.model.base_model.model.model.layers[2 * i:2 * i + 2].parameters(),
                                     lr=self.client_lr)
         train_dl = [next(self.cycled_dl) for _ in range(self.batch_num)]
         acc_sum, loss_sum = 0, 0
@@ -89,7 +89,7 @@ class LlmFedSplitTrainer:
         writer.add_hparams(self.config.__dict__, {})
 
         server_optimizer = [
-            torch.optim.AdamW(self.model.base_model.model.model.layers[2 * i:2 * i + 2], lr=self.config.lr)
+            torch.optim.AdamW(self.model.base_model.model.model.layers[2 * i:2 * i + 2].parameters(), lr=self.config.lr)
             for i in range(16)
         ]
 
