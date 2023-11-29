@@ -22,8 +22,8 @@ token = "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"
 model_name = "meta-llama/Llama-2-7b-chat-hf"
 data_name = "gsm8k"
 
-exp_name = ""
-weights_file = ""
+exp_name = "231128-2116"
+weights_file = "weights-250"
 seed = 3407
 batch_size = 2
 instruction = "Please solve the following math problem and provide the answer in the format '### <number>' at the end."

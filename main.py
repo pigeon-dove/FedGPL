@@ -10,6 +10,7 @@ from llm_tuning.dataset import LlamaDataset
 from llm_tuning.train import LlmTrainer
 from llm_tuning.train_fed import LlmFedTrainer
 from llm_tuning.model import get_4bit_model, get_lora_model, get_tokenizer
+from llm_tuning.train_fed_split import LlmFedSplitTrainer
 from llm_tuning.utils import set_seed
 
 os.environ["http_proxy"] = "http://127.0.0.1:7890"
@@ -39,7 +40,7 @@ def parse_args():
 
     parser.add_argument("--lr", default=5e-4, type=float)
     parser.add_argument("--client_lr", default=1e-4, type=float)
-    parser.add_argument("--train_mode", default="fed", type=str, choices=["local", "fed"])
+    parser.add_argument("--train_mode", default="fed", type=str, choices=["local", "fed", "fedSplit"])
     return parser.parse_args()
 
 
@@ -67,6 +68,8 @@ test_dl = DataLoader(test_ds, batch_size=config.batch_size, shuffle=False)
 trainer = None
 if config.train_mode == "fed":
     trainer = LlmFedTrainer(model, tokenizer, train_ds, val_dl, config)
+elif config.train_mode == "fedSplit":
+    trainer = LlmFedSplitTrainer(model, tokenizer, train_ds, val_dl, config)
 elif config.train_mode == "local":
     trainer = LlmTrainer(model, tokenizer, train_ds, val_dl, config)
 trainer.train()
