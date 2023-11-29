@@ -99,7 +99,7 @@ class LlmFedSplitTrainer:
             grad_collector = MeanGradCollector()
             acc_sum, loss_sum = 0, 0
             self.require_grad_all()
-            sel_layer, _ = self.calc_select_layer()
+            sel_layer, sel_grad_mean_list = self.calc_select_layer()
             self.require_grad(sel_layer)
             lora_weight = save_lora_weight(self.model, self.lora_module_name)
 
@@ -121,7 +121,9 @@ class LlmFedSplitTrainer:
             writer.add_scalar("accuracy/train", mean_acc, step)
             writer.add_scalar("loss/train", mean_loss, step)
             writer.add_scalar("selected_layer/train", sel_layer, step)
-            loop.set_postfix(mean_acc=mean_acc, mean_loss=mean_loss)
+            for i, g_mean in enumerate(sel_grad_mean_list):
+                writer.add_scalar(f"layer_grad_{i}/select", g_mean, step)
+            loop.set_postfix(mean_acc=mean_acc, mean_loss=mean_loss, sel_layer=sel_layer)
 
             if (step + 1) % self.config.val_steps == 0 or (step + 1) == self.config.max_steps:
                 val_loss, val_acc = self.validate()
