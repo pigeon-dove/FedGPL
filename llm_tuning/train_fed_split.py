@@ -100,6 +100,8 @@ class LlmFedSplitTrainer:
             acc_sum, loss_sum = 0, 0
             self.require_grad_all()
             sel_layer, sel_grad_mean_list = self.calc_select_layer()
+            if step < 32:
+                sel_layer = step % 16
             self.require_grad(sel_layer)
             lora_weight = save_lora_weight(self.model, self.lora_module_name)
 
