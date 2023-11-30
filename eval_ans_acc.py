@@ -103,11 +103,11 @@ for i, data in enumerate(loop):
     output_num = get_correct_ans(output)
     acc = 1 if correct == output_num else 0
 
-    writer.add_scalar("question", question, i)
-    writer.add_scalar("answer", answer, i)
-    writer.add_scalar("output", output, i)
-    writer.add_scalar("correct", correct, i)
-    writer.add_scalar("output_num", output_num, i)
+    writer.add_text("question", question, i)
+    writer.add_text("answer", answer, i)
+    writer.add_text("output", output, i)
+    writer.add_text("correct", correct, i)
+    writer.add_text("output_num", output_num, i)
     writer.add_scalar("acc", acc, i)
     writer.flush()
 
