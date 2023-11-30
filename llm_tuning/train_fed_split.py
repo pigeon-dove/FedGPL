@@ -74,6 +74,7 @@ class LlmFedSplitTrainer:
         self.tokenizer = tokenizer
         self.config = config
         self.client_list = []
+        self.layer_grad_list = [[] for _ in range(16)]
         base_size = len(train_ds) // config.client_num
         remainder = len(train_ds) % config.client_num
         split_sizes = [base_size + 1 if i < remainder else base_size for i in range(config.client_num)]
@@ -101,7 +102,8 @@ class LlmFedSplitTrainer:
             grad_collector = MeanGradCollector()
             acc_sum, loss_sum = 0, 0
             self.require_grad_all()
-            sel_layer, sel_grad_mean_list = self.calc_select_layer()
+            sel_layer, layer_grad_norm_list, layer_ratio_list = self.calc_select_layer()
+
             self.require_grad(sel_layer)
             lora_weight = save_lora_weight(self.model, self.lora_module_name)
 
@@ -122,10 +124,13 @@ class LlmFedSplitTrainer:
 
             writer.add_scalar("accuracy/train", mean_acc, step)
             writer.add_scalar("loss/train", mean_loss, step)
-
             writer.add_scalar("select/selected_layer", sel_layer, step)
-            for i, g_mean in enumerate(sel_grad_mean_list):
-                writer.add_scalar(f"select/layer_grad_{i}", g_mean, step)
+
+            writer.add_scalars("select/layer_ratio",
+                               {f"layer_{i}": r for i, r in enumerate(layer_ratio_list)}, step)
+            writer.add_scalars("select/layer_grad_norm",
+                               {f"layer_{i}": g for i, g in enumerate(layer_grad_norm_list)}, step)
+
             loop.set_postfix(mean_acc=mean_acc, mean_loss=mean_loss, sel_layer=sel_layer)
 
             if (step + 1) % self.config.val_steps == 0 or (step + 1) == self.config.max_steps:
@@ -208,16 +213,21 @@ class LlmFedSplitTrainer:
 
             loss = (criterion(shift_logits, shift_labels) * shift_mask).sum() / (shift_mask.sum() + 1e-9)
             loss.backward()
-        layer_grad_mean_list = []
+
+        layer_ratio_list = []
+        layer_grad_norm_list = []
         with torch.no_grad():
             for i in range(16):
                 layer_params = self.model.base_model.model.model.layers[2 * i:2 * i + 2].parameters()
                 layer_gradients = torch.cat([p.grad.view(-1) for p in layer_params if p.requires_grad])
-                gradient_norm = torch.norm(layer_gradients, p=2)
-                layer_grad_mean_list.append(gradient_norm.item())
-        sel_layer = np.argmax(layer_grad_mean_list)
+                gradient_norm = torch.norm(layer_gradients, p=2).item()
+                self.layer_grad_list[i].append(gradient_norm)
+                layer_grad_norm_list.append(gradient_norm)
+                layer_ratio_list.append(gradient_norm / np.mean(self.layer_grad_list[i]))
+
+        sel_layer = np.argmax(layer_ratio_list)
         self.model.zero_grad()
-        return sel_layer, layer_grad_mean_list
+        return sel_layer, layer_grad_norm_list, layer_ratio_list
 
     def require_grad(self, i):
         for n, p in self.model.base_model.model.model.layers[2 * i:2 * i + 2].named_parameters():
