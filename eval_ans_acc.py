@@ -8,6 +8,7 @@ import pandas as pd
 import torch
 from datasets import load_dataset
 from peft import PeftModel
+from tensorboardX import SummaryWriter
 from torch.utils.data import random_split, DataLoader
 from tqdm import tqdm
 from transformers import LlamaTokenizer, AutoModelForCausalLM
@@ -79,11 +80,10 @@ def get_correct_ans(s):
 
 
 # %%
-csv_path = f"./result/{exp_name}/eval_ans_acc.csv"
-loop = tqdm(test_ds, desc="test", position=0)
-for data in loop:
-    new_row = {"question": None, "answer": None, "output": None, "correct": None, "output_num": None, "acc": None}
+writer = SummaryWriter(f"./result/{exp_name}/logs", flush_secs=30)
 
+loop = tqdm(test_ds, desc="test", position=0)
+for i, data in enumerate(loop):
     question = data["question"]
     prompt = f"[INST] <<SYS>>\n{instruction}\n<</SYS>>\n{question} [/INST]"
     input = tokenizer(prompt, return_tensors="pt").to(model.device)
@@ -103,17 +103,14 @@ for data in loop:
     output_num = get_correct_ans(output)
     acc = 1 if correct == output_num else 0
 
-    new_row["question"] = question
-    new_row["answer"] = answer
-    new_row["output"] = output
-    new_row["correct"] = correct
-    new_row["output_num"] = output_num
-    new_row["acc"] = acc
+    writer.add_scalar("question", question, i)
+    writer.add_scalar("answer", answer, i)
+    writer.add_scalar("output", output, i)
+    writer.add_scalar("correct", correct, i)
+    writer.add_scalar("output_num", output_num, i)
+    writer.add_scalar("acc", acc, i)
+    writer.flush()
 
     loop.set_postfix(correct=correct,
                      output_num=output_num,
                      acc=acc)
-    # mean_acc=sum(exp_dict["acc"]) / len(exp_dict["acc"])
-
-    df = pd.DataFrame([new_row])
-    df.to_csv(csv_path, mode='a', header=not pd.read_csv(csv_path).shape[0])
