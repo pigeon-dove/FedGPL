@@ -85,10 +85,12 @@ writer = SummaryWriter(f"./result/{exp_name}/logs", flush_secs=30)
 loop = tqdm(test_ds, desc="test", position=0)
 for i, data in enumerate(loop):
     question = data["question"]
+    answer = data["answer"]
+
     prompt = f"[INST] <<SYS>>\n{instruction}\n<</SYS>>\n{question} [/INST]"
     input = tokenizer(prompt, return_tensors="pt").to(model.device)
 
-    answer = data["answer"]
+
 
     generate_ids = model.generate(
         input_ids=input['input_ids'],
