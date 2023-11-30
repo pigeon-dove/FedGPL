@@ -221,9 +221,12 @@ class LlmFedSplitTrainer:
                 layer_params = self.model.base_model.model.model.layers[2 * i:2 * i + 2].parameters()
                 layer_gradients = torch.cat([p.grad.view(-1) for p in layer_params if p.requires_grad])
                 gradient_norm = torch.norm(layer_gradients, p=2).item()
+
+                history_norm = np.mean(self.layer_grad_list[i][-10:]) if len(self.layer_grad_list[i][-10:]) > 0 else 1
                 self.layer_grad_list[i].append(gradient_norm)
+
                 layer_grad_norm_list.append(gradient_norm)
-                layer_ratio_list.append(gradient_norm / np.mean(self.layer_grad_list[i]))
+                layer_ratio_list.append(gradient_norm / history_norm)
 
         sel_layer = np.argmax(layer_ratio_list)
         self.model.zero_grad()
