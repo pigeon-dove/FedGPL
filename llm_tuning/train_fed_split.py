@@ -233,6 +233,9 @@ class LlmFedSplitTrainer:
         return sel_layer, layer_grad_norm_list, layer_ratio_list
 
     def require_grad(self, i):
+        for n, p in self.model.named_parameters():
+            if "lora" in n:
+                p.requires_grad = False
         for n, p in self.model.base_model.model.model.layers[2 * i:2 * i + 2].named_parameters():
             if "lora" in n:
                 p.requires_grad = True

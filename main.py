@@ -41,7 +41,7 @@ def parse_args():
 
     parser.add_argument("--lr", default=5e-4, type=float)
     parser.add_argument("--client_lr", default=1e-4, type=float)
-    parser.add_argument("--train_mode", default="fed", type=str, choices=["local", "fed", "fedSplit"])
+    parser.add_argument("--train_mode", default="fedSplit", type=str, choices=["local", "fed", "fedSplit"])
     return parser.parse_args()
 
 
