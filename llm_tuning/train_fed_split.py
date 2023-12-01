@@ -102,7 +102,7 @@ class LlmFedSplitTrainer:
             grad_collector = MeanGradCollector()
             acc_sum, loss_sum = 0, 0
             self.require_grad_all()
-            sel_layer, layer_grad_norm_list, layer_ratio_list = self.calc_select_layer()
+            sel_layer, layer_grad_norm_list = self.calc_select_layer()
 
             self.require_grad(sel_layer)
             lora_weight = save_lora_weight(self.model, self.lora_module_name)
@@ -126,8 +126,6 @@ class LlmFedSplitTrainer:
             writer.add_scalar("loss/train", mean_loss, step)
             writer.add_scalar("select/selected_layer", sel_layer, step)
 
-            writer.add_scalars("select/layer_ratio",
-                               {f"layer_{i}": r for i, r in enumerate(layer_ratio_list)}, step)
             writer.add_scalars("select/layer_grad_norm",
                                {f"layer_{i}": g for i, g in enumerate(layer_grad_norm_list)}, step)
 
@@ -214,23 +212,22 @@ class LlmFedSplitTrainer:
             loss = (criterion(shift_logits, shift_labels) * shift_mask).sum() / (shift_mask.sum() + 1e-9)
             loss.backward()
 
-        layer_ratio_list = []
         layer_grad_norm_list = []
         with torch.no_grad():
             for i in range(16):
-                layer_params = self.model.base_model.model.model.layers[2 * i:2 * i + 2].parameters()
-                layer_gradients = torch.cat([p.grad.view(-1) for p in layer_params if p.requires_grad])
-                gradient_norm = torch.norm(layer_gradients, p=2).item()
-
-                history_norm = np.mean(self.layer_grad_list[i][-10:]) if len(self.layer_grad_list[i][-10:]) > 0 else 1
-                self.layer_grad_list[i].append(gradient_norm)
-
+                gradient_norm = []
+                for n, l in self.model.base_model.model.model.layers[2 * i:2 * i + 2].named_modules():
+                    if n.endswith("q_proj") or n.endswith("v_proj"):
+                        lora_a = l.lora_A.default.weight
+                        lora_b = l.lora_B.default.weight
+                        grad_w = lora_b @ lora_a.grad + lora_b.grad @ lora_a
+                        gradient_norm.append(torch.norm(grad_w, p=2).item())
+                gradient_norm = sum(gradient_norm) / len(gradient_norm)
                 layer_grad_norm_list.append(gradient_norm)
-                layer_ratio_list.append(gradient_norm / history_norm)
 
-        sel_layer = np.argmax(layer_ratio_list)
+        sel_layer = np.argmax(layer_grad_norm_list)
         self.model.zero_grad()
-        return sel_layer, layer_grad_norm_list, layer_ratio_list
+        return sel_layer, layer_grad_norm_list
 
     def require_grad(self, i):
         for n, p in self.model.named_parameters():
