@@ -89,7 +89,7 @@ class LlmFedSplitTrainer:
         writer = SummaryWriter(f"./result/{self.config.exp_name}/logs", flush_secs=10)
         writer.add_hparams(self.config.__dict__, {})
 
-        # self.init_with_val()
+        self.init_with_val()
 
         server_optimizer = [
             torch.optim.AdamW(self.model.base_model.model.model.layers[2 * i:2 * i + 2].parameters(), lr=self.config.lr)
