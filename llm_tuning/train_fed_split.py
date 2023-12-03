@@ -89,7 +89,7 @@ class LlmFedSplitTrainer:
         writer = SummaryWriter(f"./result/{self.config.exp_name}/logs", flush_secs=10)
         writer.add_hparams(self.config.__dict__, {})
 
-        self.init_with_val()
+        # self.init_with_val()
 
         server_optimizer = [
             torch.optim.AdamW(self.model.base_model.model.model.layers[2 * i:2 * i + 2].parameters(), lr=self.config.lr)
@@ -225,7 +225,8 @@ class LlmFedSplitTrainer:
                 gradient_norm = sum(gradient_norm) / len(gradient_norm)
                 layer_grad_norm_list.append(gradient_norm)
 
-        sel_layer = np.argmax(layer_grad_norm_list)
+        # sel_layer = np.argmax(layer_grad_norm_list)
+        sel_layer = np.argmin(layer_grad_norm_list)
         self.model.zero_grad()
         return sel_layer, layer_grad_norm_list
 
