@@ -74,7 +74,7 @@ class LlmFedSplitTrainer:
         self.tokenizer = tokenizer
         self.config = config
         self.client_list = []
-        self.layer_grad_list = [[] for _ in range(16)]
+        self.layer_weight = [1 for _ in range(16)]
         base_size = len(train_ds) // config.client_num
         remainder = len(train_ds) % config.client_num
         split_sizes = [base_size + 1 if i < remainder else base_size for i in range(config.client_num)]
@@ -102,10 +102,7 @@ class LlmFedSplitTrainer:
             grad_collector = MeanGradCollector()
             acc_sum, loss_sum = 0, 0
             self.require_grad_all()
-            if step < 150:
-                sel_layer, layer_grad_norm_list = self.calc_select_layer("min")
-            else:
-                sel_layer, layer_grad_norm_list = self.calc_select_layer("max")
+            sel_layer, weight_layer_grad_norm_list, layer_grad_norm_list = self.calc_select_layer("max")
 
             self.require_grad(sel_layer)
             lora_weight = save_lora_weight(self.model, self.lora_module_name)
@@ -128,6 +125,9 @@ class LlmFedSplitTrainer:
             writer.add_scalar("accuracy/train", mean_acc, step)
             writer.add_scalar("loss/train", mean_loss, step)
             writer.add_scalar("select/selected_layer", sel_layer, step)
+
+            writer.add_scalars("select/weight_layer_grad_norm",
+                               {f"layer_{i}": g for i, g in enumerate(weight_layer_grad_norm_list)}, step)
 
             writer.add_scalars("select/layer_grad_norm",
                                {f"layer_{i}": g for i, g in enumerate(layer_grad_norm_list)}, step)
@@ -228,16 +228,22 @@ class LlmFedSplitTrainer:
                 gradient_norm = sum(gradient_norm) / len(gradient_norm)
                 layer_grad_norm_list.append(gradient_norm)
 
+        weight_layer_grad_norm_list = list(layer_grad_norm_list)
+        for i in range(16):
+            weight_layer_grad_norm_list[i] *= self.layer_weight[i]
+
         if mod == "max":
-            sel_layer = np.argmax(layer_grad_norm_list)
+            sel_layer = np.argmax(weight_layer_grad_norm_list)
         elif mod == "min":
-            sel_layer = np.argmin(layer_grad_norm_list)
+            sel_layer = np.argmin(weight_layer_grad_norm_list)
         else:
             raise ValueError("mod must be max or min")
+
+        self.layer_weight[sel_layer] *= 0.95
         # sorted_list = sorted(enumerate(layer_grad_norm_list), key=lambda x: x[1])
         # sel_layer = sorted_list[7][0]
         self.model.zero_grad()
-        return sel_layer, layer_grad_norm_list
+        return sel_layer, weight_layer_grad_norm_list, layer_grad_norm_list
 
     def require_grad(self, i):
         for n, p in self.model.named_parameters():
