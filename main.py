@@ -26,7 +26,7 @@ seed = 3407
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp_name", default=time.strftime("%y%m%d-%H%M", time.localtime(time.time())), type=str)
-    parser.add_argument("--device", default="cuda:1", type=str)
+    parser.add_argument("--device", default="cuda:0", type=str)
 
     parser.add_argument("--client_num", default=50, type=int)
     parser.add_argument("--client_num_per_step", default=4, type=int)

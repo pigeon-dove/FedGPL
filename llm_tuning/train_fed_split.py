@@ -33,14 +33,14 @@ class FedClient:
 
     def local_train(self, lora_weight, i):
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
-        optimizer = torch.optim.SGD(self.model.base_model.model.model.layers[2 * i:2 * i + 2].parameters(),
-                                    lr=self.client_lr)
+        param = self.model.base_model.model.model.layers[2 * i: 2 * i + 1].parameters()
+        optimizer = torch.optim.SGD(param, lr=self.client_lr)
         train_dl = [next(self.cycled_dl) for _ in range(self.batch_num)]
         acc_sum, loss_sum = 0, 0
 
         for e in range(self.epoch):
             optimizer.zero_grad()
-            for i, batch_data in enumerate(train_dl):
+            for step, batch_data in enumerate(train_dl):
                 input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
                                                                        batch_data["attention_mask"],
                                                                        batch_data["label_mask"],
@@ -57,7 +57,7 @@ class FedClient:
                 acc_sum += acc.item()
                 loss_sum += loss.item()
 
-                if (i + 1) % self.accum_steps == 0 or (i + 1) == len(train_dl):
+                if (step + 1) % self.accum_steps == 0 or (i + 1) == len(train_dl):
                     optimizer.step()
                     optimizer.zero_grad()
 
