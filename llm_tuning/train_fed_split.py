@@ -102,7 +102,10 @@ class LlmFedSplitTrainer:
             grad_collector = MeanGradCollector()
             acc_sum, loss_sum = 0, 0
             self.require_grad_all()
-            sel_layer, layer_grad_norm_list = self.calc_select_layer()
+            if step < 150:
+                sel_layer, layer_grad_norm_list = self.calc_select_layer("min")
+            else:
+                sel_layer, layer_grad_norm_list = self.calc_select_layer("max")
 
             self.require_grad(sel_layer)
             lora_weight = save_lora_weight(self.model, self.lora_module_name)
@@ -194,7 +197,7 @@ class LlmFedSplitTrainer:
         self.model.train()
         return sum(loss_list) / len(loss_list), sum(acc_list) / len(acc_list)
 
-    def calc_select_layer(self):
+    def calc_select_layer(self, mod):
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
         self.model.zero_grad()
         val_iter = iter(self.val_dl)
@@ -225,10 +228,14 @@ class LlmFedSplitTrainer:
                 gradient_norm = sum(gradient_norm) / len(gradient_norm)
                 layer_grad_norm_list.append(gradient_norm)
 
-        # sel_layer = np.argmax(layer_grad_norm_list)
-        # sel_layer = np.argmin(layer_grad_norm_list)
-        sorted_list = sorted(enumerate(layer_grad_norm_list), key=lambda x: x[1])
-        sel_layer = sorted_list[7][0]
+        if mod == "max":
+            sel_layer = np.argmax(layer_grad_norm_list)
+        elif mod == "min":
+            sel_layer = np.argmin(layer_grad_norm_list)
+        else:
+            raise ValueError("mod must be max or min")
+        # sorted_list = sorted(enumerate(layer_grad_norm_list), key=lambda x: x[1])
+        # sel_layer = sorted_list[7][0]
         self.model.zero_grad()
         return sel_layer, layer_grad_norm_list
 
