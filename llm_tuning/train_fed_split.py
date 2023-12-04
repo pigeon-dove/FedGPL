@@ -226,7 +226,9 @@ class LlmFedSplitTrainer:
                 layer_grad_norm_list.append(gradient_norm)
 
         # sel_layer = np.argmax(layer_grad_norm_list)
-        sel_layer = np.argmin(layer_grad_norm_list)
+        # sel_layer = np.argmin(layer_grad_norm_list)
+        sorted_list = sorted(enumerate(layer_grad_norm_list), key=lambda x: x[1])
+        sel_layer = sorted_list[7][0]
         self.model.zero_grad()
         return sel_layer, layer_grad_norm_list
 
