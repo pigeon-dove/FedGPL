@@ -31,10 +31,11 @@ class FedClient:
         self.epoch = epoch
         self.client_lr = client_lr
 
-    def local_train(self, lora_weight, i):
+    def local_train(self, lora_weight, sel_layer_min, sel_layer_max):
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
-        optimizer = torch.optim.SGD(self.model.base_model.model.model.layers[2 * i:2 * i + 2].parameters(),
-                                    lr=self.client_lr)
+        param1 = self.model.base_model.model.model.layers[2 * sel_layer_min:2 * sel_layer_min + 2].parameters()
+        param2 = self.model.base_model.model.model.layers[2 * sel_layer_max:2 * sel_layer_max + 2].parameters()
+        optimizer = torch.optim.SGD(list(param1) + list(param2), lr=self.client_lr)
         train_dl = [next(self.cycled_dl) for _ in range(self.batch_num)]
         acc_sum, loss_sum = 0, 0
 
@@ -102,13 +103,13 @@ class LlmFedSplitTrainer:
             grad_collector = MeanGradCollector()
             acc_sum, loss_sum = 0, 0
             self.require_grad_all()
-            sel_layer, layer_grad_norm_list = self.calc_select_layer()
+            sel_layer_min, sel_layer_max, layer_grad_norm_list = self.calc_select_layer()
 
-            self.require_grad(sel_layer)
+            self.require_grad([sel_layer_min, sel_layer_max])
             lora_weight = save_lora_weight(self.model, self.lora_module_name)
 
             for client in random.sample(self.client_list, self.config.client_num_per_step):
-                grad, acc, loss = client.local_train(lora_weight, sel_layer)
+                grad, acc, loss = client.local_train(lora_weight, sel_layer_min, sel_layer_max)
                 load_lora_weight(self.model, lora_weight)  # restore the model weights
                 grad_collector.add(grad)
                 acc_sum += acc
@@ -116,20 +117,23 @@ class LlmFedSplitTrainer:
             mean_grad = grad_collector.mean_grad(lr=self.config.client_lr)
             mean_acc, mean_loss = acc_sum / self.config.client_num_per_step, loss_sum / self.config.client_num_per_step
 
-            server_optimizer[sel_layer].zero_grad()
+            server_optimizer[sel_layer_min].zero_grad()
+            server_optimizer[sel_layer_max].zero_grad()
             for n, p in self.model.named_parameters():
                 if p.requires_grad:
                     p.grad = mean_grad[n]
-            server_optimizer[sel_layer].step()
+            server_optimizer[sel_layer_min].step()
+            server_optimizer[sel_layer_max].step()
 
             writer.add_scalar("accuracy/train", mean_acc, step)
             writer.add_scalar("loss/train", mean_loss, step)
-            writer.add_scalar("select/selected_layer", sel_layer, step)
+            writer.add_scalar("select/selected_layer_min", sel_layer_min, step)
+            writer.add_scalar("select/selected_layer_max", sel_layer_max, step)
 
             writer.add_scalars("select/layer_grad_norm",
                                {f"layer_{i}": g for i, g in enumerate(layer_grad_norm_list)}, step)
 
-            loop.set_postfix(mean_acc=mean_acc, mean_loss=mean_loss, sel_layer=sel_layer)
+            loop.set_postfix(mean_acc=mean_acc, mean_loss=mean_loss, min_layer=sel_layer_min, max_layer=sel_layer_max)
 
             if (step + 1) % self.config.val_steps == 0 or (step + 1) == self.config.max_steps:
                 val_loss, val_acc = self.validate()
@@ -225,18 +229,19 @@ class LlmFedSplitTrainer:
                 gradient_norm = sum(gradient_norm) / len(gradient_norm)
                 layer_grad_norm_list.append(gradient_norm)
 
-        # sel_layer = np.argmax(layer_grad_norm_list)
-        sel_layer = np.argmin(layer_grad_norm_list)
+        sel_layer_max = np.argmax(layer_grad_norm_list)
+        sel_layer_min = np.argmin(layer_grad_norm_list)
         self.model.zero_grad()
-        return sel_layer, layer_grad_norm_list
+        return sel_layer_min, sel_layer_max, layer_grad_norm_list
 
-    def require_grad(self, i):
+    def require_grad(self, idx_list):
         for n, p in self.model.named_parameters():
             if "lora" in n:
                 p.requires_grad = False
-        for n, p in self.model.base_model.model.model.layers[2 * i:2 * i + 2].named_parameters():
-            if "lora" in n:
-                p.requires_grad = True
+        for i in idx_list:
+            for n, p in self.model.base_model.model.model.layers[2 * i:2 * i + 2].named_parameters():
+                if "lora" in n:
+                    p.requires_grad = True
 
     def require_grad_all(self):
         for n, p in self.model.named_parameters():
