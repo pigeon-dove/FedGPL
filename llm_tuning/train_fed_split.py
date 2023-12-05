@@ -89,7 +89,7 @@ class LlmFedSplitTrainer:
         writer = SummaryWriter(f"./result/{self.config.exp_name}/logs", flush_secs=10)
         writer.add_hparams(self.config.__dict__, {})
 
-        # self.init_with_val()
+        self.init_with_val()
 
         server_optimizer = [
             torch.optim.AdamW(self.model.base_model.model.model.layers[2 * i:2 * i + 2].parameters(), lr=self.config.lr)
@@ -147,7 +147,7 @@ class LlmFedSplitTrainer:
         optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
         val_iter = iter(self.val_dl)
 
-        loop = tqdm(range(len(self.val_dl)), desc="init_with_val", position=0, ncols=100)
+        loop = tqdm(range(64), desc="init_with_val", position=0, ncols=100)
         for step in enumerate(loop):
             batch_data = next(val_iter)
             input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
@@ -239,7 +239,7 @@ class LlmFedSplitTrainer:
         else:
             raise ValueError("mod must be max or min")
 
-        self.layer_weight[sel_layer] *= 0.95
+        self.layer_weight[sel_layer] *= 0.94
         # sorted_list = sorted(enumerate(layer_grad_norm_list), key=lambda x: x[1])
         # sel_layer = sorted_list[7][0]
         self.model.zero_grad()
