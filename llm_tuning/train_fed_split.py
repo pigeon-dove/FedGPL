@@ -144,13 +144,13 @@ class LlmFedSplitTrainer:
     def init_with_val(self):
         self.model.train()
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
-        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr / 10)
         val_iter = iter(self.val_dl)
 
         new_dataloader = [next(val_iter) for _ in range(64)]
 
-        loop = tqdm(new_dataloader, desc="init_with_val", position=0, ncols=100)
         for e in range(3):
+            loop = tqdm(new_dataloader, desc="init_with_val", position=0, ncols=100)
             for batch_data in loop:
                 input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
                                                                        batch_data["attention_mask"],
