@@ -92,7 +92,7 @@ class LlmFedSplitTrainer:
         self.init_with_val()
 
         server_optimizer = [
-            torch.optim.Adam(self.model.base_model.model.model.layers[4 * i:4 * i + 4].parameters(), lr=self.config.lr)
+            torch.optim.AdamW(self.model.base_model.model.model.layers[4 * i:4 * i + 4].parameters(), lr=self.config.lr)
             for i in range(8)
         ]
 
@@ -147,9 +147,9 @@ class LlmFedSplitTrainer:
         optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr / 10)
         val_iter = iter(self.val_dl)
 
-        new_dataloader = [next(val_iter) for _ in range(64)]
+        new_dataloader = [next(val_iter) for _ in range(len(self.val_dl) // 20)]
 
-        for e in range(3):
+        for e in range(2):
             loop = tqdm(new_dataloader, desc="init_with_val", position=0, ncols=100)
             for batch_data in loop:
                 input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
