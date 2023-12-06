@@ -74,7 +74,7 @@ class LlmFedSplitTrainer:
         self.tokenizer = tokenizer
         self.config = config
         self.client_list = []
-        self.layer_weight = [1 for _ in range(16)]
+        self.layer_weight = [1 for _ in range(8)]
         base_size = len(train_ds) // config.client_num
         remainder = len(train_ds) % config.client_num
         split_sizes = [base_size + 1 if i < remainder else base_size for i in range(config.client_num)]
@@ -92,8 +92,8 @@ class LlmFedSplitTrainer:
         self.init_with_val()
 
         server_optimizer = [
-            torch.optim.AdamW(self.model.base_model.model.model.layers[2 * i:2 * i + 2].parameters(), lr=self.config.lr)
-            for i in range(16)
+            torch.optim.Adam(self.model.base_model.model.model.layers[4 * i:4 * i + 4].parameters(), lr=self.config.lr)
+            for i in range(8)
         ]
 
         loop = tqdm(range(self.config.max_steps), ncols=100)
@@ -177,23 +177,28 @@ class LlmFedSplitTrainer:
         self.model.eval()
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
         loss_list, acc_list = [], []
+        val_dl_iter = iter(self.val_dl)
+        new_dataloader = [next(val_dl_iter) for _ in range(64)]
+        
+        loop = tqdm(new_dataloader, desc="validate", position=0, ncols=100)
         with torch.no_grad():
-            for step, batch_data in enumerate(tqdm(self.val_dl, desc="validate", position=0, ncols=100)):
-                input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
-                                                                       batch_data["attention_mask"],
-                                                                       batch_data["label_mask"],
-                                                                       device=self.model.device)
-
-                output = self.model.forward(input_ids, attention_mask)
-                shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.model.config.vocab_size)
-                shift_labels = input_ids[..., 1:].contiguous().view(-1)
-                shift_mask = label_mask[..., 1:].contiguous().view(-1)
-
-                loss = (criterion(shift_logits, shift_labels) * shift_mask).sum() / shift_mask.sum()
-                acc = ((shift_logits.argmax(dim=-1) == shift_labels) * shift_mask).sum() / shift_mask.sum()
-
-                loss_list.append(loss.item())
-                acc_list.append(acc.item())
+            for e in range(3):
+                for step, batch_data in enumerate(loop):
+                    input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
+                                                                           batch_data["attention_mask"],
+                                                                           batch_data["label_mask"],
+                                                                           device=self.model.device)
+        
+                    output = self.model.forward(input_ids, attention_mask)
+                    shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.model.config.vocab_size)
+                    shift_labels = input_ids[..., 1:].contiguous().view(-1)
+                    shift_mask = label_mask[..., 1:].contiguous().view(-1)
+        
+                    loss = (criterion(shift_logits, shift_labels) * shift_mask).sum() / shift_mask.sum()
+                    acc = ((shift_logits.argmax(dim=-1) == shift_labels) * shift_mask).sum() / shift_mask.sum()
+        
+                    loss_list.append(loss.item())
+                    acc_list.append(acc.item())
         self.model.train()
         return sum(loss_list) / len(loss_list), sum(acc_list) / len(acc_list)
 
@@ -217,9 +222,9 @@ class LlmFedSplitTrainer:
 
         layer_grad_norm_list = []
         with torch.no_grad():
-            for i in range(16):
+            for i in range(8):
                 gradient_norm = []
-                for n, l in self.model.base_model.model.model.layers[2 * i:2 * i + 2].named_modules():
+                for n, l in self.model.base_model.model.model.layers[4 * i:4 * i + 4].named_modules():
                     if n.endswith("q_proj") or n.endswith("v_proj"):
                         lora_a = l.lora_A.default.weight
                         lora_b = l.lora_B.default.weight
@@ -229,7 +234,7 @@ class LlmFedSplitTrainer:
                 layer_grad_norm_list.append(gradient_norm)
 
         weight_layer_grad_norm_list = list(layer_grad_norm_list)
-        for i in range(16):
+        for i in range(8):
             weight_layer_grad_norm_list[i] *= self.layer_weight[i]
 
         if mod == "max":
@@ -249,7 +254,7 @@ class LlmFedSplitTrainer:
         for n, p in self.model.named_parameters():
             if "lora" in n:
                 p.requires_grad = False
-        for n, p in self.model.base_model.model.model.layers[2 * i:2 * i + 2].named_parameters():
+        for n, p in self.model.base_model.model.model.layers[4 * i:4 * i + 4].named_parameters():
             if "lora" in n:
                 p.requires_grad = True
 
