@@ -147,9 +147,10 @@ class LlmFedSplitTrainer:
         optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
         val_iter = iter(self.val_dl)
 
-        loop = tqdm(range(64), desc="init_with_val", position=0, ncols=100)
-        for step in enumerate(loop):
-            batch_data = next(val_iter)
+        new_dataloader = [next(val_iter) for _ in range(64)]
+
+        loop = tqdm(new_dataloader, desc="init_with_val", position=0, ncols=100)
+        for batch_data in enumerate(loop):
             input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
                                                                    batch_data["attention_mask"],
                                                                    batch_data["label_mask"],
@@ -177,28 +178,25 @@ class LlmFedSplitTrainer:
         self.model.eval()
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
         loss_list, acc_list = [], []
-        val_dl_iter = iter(self.val_dl)
-        new_dataloader = [next(val_dl_iter) for _ in range(64)]
         
-        loop = tqdm(new_dataloader, desc="validate", position=0, ncols=100)
+        loop = tqdm(self.val_dl, desc="validate", position=0, ncols=100)
         with torch.no_grad():
-            for e in range(3):
-                for step, batch_data in enumerate(loop):
-                    input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
-                                                                           batch_data["attention_mask"],
-                                                                           batch_data["label_mask"],
-                                                                           device=self.model.device)
-        
-                    output = self.model.forward(input_ids, attention_mask)
-                    shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.model.config.vocab_size)
-                    shift_labels = input_ids[..., 1:].contiguous().view(-1)
-                    shift_mask = label_mask[..., 1:].contiguous().view(-1)
-        
-                    loss = (criterion(shift_logits, shift_labels) * shift_mask).sum() / shift_mask.sum()
-                    acc = ((shift_logits.argmax(dim=-1) == shift_labels) * shift_mask).sum() / shift_mask.sum()
-        
-                    loss_list.append(loss.item())
-                    acc_list.append(acc.item())
+            for step, batch_data in enumerate(loop):
+                input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
+                                                                       batch_data["attention_mask"],
+                                                                       batch_data["label_mask"],
+                                                                       device=self.model.device)
+
+                output = self.model.forward(input_ids, attention_mask)
+                shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.model.config.vocab_size)
+                shift_labels = input_ids[..., 1:].contiguous().view(-1)
+                shift_mask = label_mask[..., 1:].contiguous().view(-1)
+
+                loss = (criterion(shift_logits, shift_labels) * shift_mask).sum() / shift_mask.sum()
+                acc = ((shift_logits.argmax(dim=-1) == shift_labels) * shift_mask).sum() / shift_mask.sum()
+
+                loss_list.append(loss.item())
+                acc_list.append(acc.item())
         self.model.train()
         return sum(loss_list) / len(loss_list), sum(acc_list) / len(acc_list)
 
