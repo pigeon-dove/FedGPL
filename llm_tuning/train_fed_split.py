@@ -150,22 +150,23 @@ class LlmFedSplitTrainer:
         new_dataloader = [next(val_iter) for _ in range(64)]
 
         loop = tqdm(new_dataloader, desc="init_with_val", position=0, ncols=100)
-        for batch_data in enumerate(loop):
-            input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
-                                                                   batch_data["attention_mask"],
-                                                                   batch_data["label_mask"],
-                                                                   device=self.model.device)
-            output = self.model.forward(input_ids, attention_mask)
-            shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
-            shift_labels = input_ids[..., 1:].contiguous().view(-1)
-            shift_mask = label_mask[..., 1:].contiguous().view(-1)
+        for e in range(3):
+            for batch_data in loop:
+                input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
+                                                                       batch_data["attention_mask"],
+                                                                       batch_data["label_mask"],
+                                                                       device=self.model.device)
+                output = self.model.forward(input_ids, attention_mask)
+                shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
+                shift_labels = input_ids[..., 1:].contiguous().view(-1)
+                shift_mask = label_mask[..., 1:].contiguous().view(-1)
 
-            loss = (criterion(shift_logits, shift_labels) * shift_mask).sum() / shift_mask.sum()
-            acc = ((shift_logits.argmax(dim=-1) == shift_labels) * shift_mask).sum() / shift_mask.sum()
-            loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
-            loop.set_postfix(loss=loss.item(), acc=acc.item())
+                loss = (criterion(shift_logits, shift_labels) * shift_mask).sum() / shift_mask.sum()
+                acc = ((shift_logits.argmax(dim=-1) == shift_labels) * shift_mask).sum() / shift_mask.sum()
+                loss.backward()
+                optimizer.step()
+                optimizer.zero_grad()
+                loop.set_postfix(loss=loss.item(), acc=acc.item())
 
     def get_lora_module_name(self):
         name_list = []
