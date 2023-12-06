@@ -244,7 +244,7 @@ class LlmFedSplitTrainer:
         else:
             raise ValueError("mod must be max or min")
 
-        self.layer_weight[sel_layer] *= 0.94
+        self.layer_weight[sel_layer] *= 0.95
         # sorted_list = sorted(enumerate(layer_grad_norm_list), key=lambda x: x[1])
         # sel_layer = sorted_list[7][0]
         self.model.zero_grad()
