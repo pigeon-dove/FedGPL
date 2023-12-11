@@ -31,10 +31,12 @@ class FedClient:
         self.epoch = epoch
         self.client_lr = client_lr
 
-    def local_train(self, lora_weight, i):
+    def local_train(self, lora_weight, select_indexes):
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
-        param = self.model.base_model.model.model.layers[2 * i: 2 * i + 1].parameters()
-        optimizer = torch.optim.SGD(param, lr=self.client_lr)
+        selected_parameters = [param for i, layer in enumerate(self.model.base_model.model.model.layers) if
+                               i in select_indexes for param in layer.parameters()]
+        optimizer = torch.optim.SGD(selected_parameters, lr=self.client_lr)
+
         train_dl = [next(self.cycled_dl) for _ in range(self.batch_num)]
         acc_sum, loss_sum = 0, 0
 
@@ -57,7 +59,7 @@ class FedClient:
                 acc_sum += acc.item()
                 loss_sum += loss.item()
 
-                if (step + 1) % self.accum_steps == 0 or (i + 1) == len(train_dl):
+                if (step + 1) % self.accum_steps == 0 or (step + 1) == len(train_dl):
                     optimizer.step()
                     optimizer.zero_grad()
 
@@ -74,7 +76,6 @@ class LlmFedSplitTrainer:
         self.tokenizer = tokenizer
         self.config = config
         self.client_list = []
-        self.layer_weight = [1 for _ in range(8)]
         base_size = len(train_ds) // config.client_num
         remainder = len(train_ds) % config.client_num
         split_sizes = [base_size + 1 if i < remainder else base_size for i in range(config.client_num)]
@@ -92,23 +93,23 @@ class LlmFedSplitTrainer:
         self.init_with_val()
 
         server_optimizer = [
-            torch.optim.AdamW(self.model.base_model.model.model.layers[4 * i:4 * i + 4].parameters(), lr=self.config.lr)
-            for i in range(8)
+            torch.optim.AdamW(layer.parameters(), lr=self.config.lr)
+            for layer in self.model.base_model.model.model.layers
         ]
 
-        loop = tqdm(range(self.config.max_steps), ncols=100)
+        loop = tqdm(range(self.config.max_steps), ncols=120)
         for step in loop:
             self.model.train()
             grad_collector = MeanGradCollector()
             acc_sum, loss_sum = 0, 0
             self.require_grad_all()
-            sel_layer, weight_layer_grad_norm_list, layer_grad_norm_list = self.calc_select_layer("max")
+            select_indexes, layer_grad_norm_list = self.calc_select_layer()[:4]
+            self.require_grad(select_indexes)
 
-            self.require_grad(sel_layer)
             lora_weight = save_lora_weight(self.model, self.lora_module_name)
 
             for client in random.sample(self.client_list, self.config.client_num_per_step):
-                grad, acc, loss = client.local_train(lora_weight, sel_layer)
+                grad, acc, loss = client.local_train(lora_weight, select_indexes)
                 load_lora_weight(self.model, lora_weight)  # restore the model weights
                 grad_collector.add(grad)
                 acc_sum += acc
@@ -116,24 +117,23 @@ class LlmFedSplitTrainer:
             mean_grad = grad_collector.mean_grad(lr=self.config.client_lr)
             mean_acc, mean_loss = acc_sum / self.config.client_num_per_step, loss_sum / self.config.client_num_per_step
 
-            server_optimizer[sel_layer].zero_grad()
+            for i in select_indexes:
+                server_optimizer[i].zero_grad()
             for n, p in self.model.named_parameters():
                 if p.requires_grad:
                     p.grad = mean_grad[n]
-            server_optimizer[sel_layer].step()
+            for i in select_indexes:
+                server_optimizer[i].step()
 
             writer.add_scalar("accuracy/train", mean_acc, step)
             writer.add_scalar("loss/train", mean_loss, step)
-            writer.add_scalar("select/selected_layer", sel_layer, step)
-
-            writer.add_scalars("select/weight_layer_grad_norm",
-                               {f"layer_{i}": g for i, g in enumerate(weight_layer_grad_norm_list)}, step)
+            writer.add_scalars("select_indexes",
+                               {f"select_{i}": idx for i, idx in enumerate(select_indexes)}, step)
 
             writer.add_scalars("select/layer_grad_norm",
                                {f"layer_{i}": g for i, g in enumerate(layer_grad_norm_list)}, step)
 
-            loop.set_postfix(mean_acc=mean_acc, mean_loss=mean_loss, sel_layer=sel_layer)
-
+            loop.set_postfix(mean_acc=mean_acc, mean_loss=mean_loss, select_indexes=select_indexes)
             if (step + 1) % self.config.val_steps == 0 or (step + 1) == self.config.max_steps:
                 val_loss, val_acc = self.validate()
                 writer.add_scalar("loss/validate", val_loss, step)
@@ -149,8 +149,8 @@ class LlmFedSplitTrainer:
 
         new_dataloader = [next(val_iter) for _ in range(len(self.val_dl) // 20)]
 
-        for e in range(2):
-            loop = tqdm(new_dataloader, desc="init_with_val", position=0, ncols=100)
+        for e in range(1):
+            loop = tqdm(new_dataloader, desc="init_with_val", position=0, ncols=120)
             for batch_data in loop:
                 input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
                                                                        batch_data["attention_mask"],
@@ -179,8 +179,8 @@ class LlmFedSplitTrainer:
         self.model.eval()
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
         loss_list, acc_list = [], []
-        
-        loop = tqdm(self.val_dl, desc="validate", position=0, ncols=100)
+
+        loop = tqdm(self.val_dl, desc="validate", position=0, ncols=120)
         with torch.no_grad():
             for step, batch_data in enumerate(loop):
                 input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
@@ -201,7 +201,7 @@ class LlmFedSplitTrainer:
         self.model.train()
         return sum(loss_list) / len(loss_list), sum(acc_list) / len(acc_list)
 
-    def calc_select_layer(self, mod):
+    def calc_select_layer(self):
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
         self.model.zero_grad()
         val_iter = iter(self.val_dl)
@@ -221,41 +221,30 @@ class LlmFedSplitTrainer:
 
         layer_grad_norm_list = []
         with torch.no_grad():
-            for i in range(8):
+            for i, layer in enumerate(self.model.base_model.model.model.layers):
                 gradient_norm = []
-                for n, l in self.model.base_model.model.model.layers[4 * i:4 * i + 4].named_modules():
-                    if n.endswith("q_proj") or n.endswith("v_proj"):
-                        lora_a = l.lora_A.default.weight
-                        lora_b = l.lora_B.default.weight
+                for name, module in layer.named_modules():
+                    if name.endswith("q_proj") or name.endswith("v_proj"):
+                        lora_a = module.lora_A.default.weight
+                        lora_b = module.lora_B.default.weight
                         grad_w = lora_b @ lora_a.grad + lora_b.grad @ lora_a
                         gradient_norm.append(torch.norm(grad_w, p=2).item())
                 gradient_norm = sum(gradient_norm) / len(gradient_norm)
                 layer_grad_norm_list.append(gradient_norm)
 
-        weight_layer_grad_norm_list = list(layer_grad_norm_list)
-        for i in range(8):
-            weight_layer_grad_norm_list[i] *= self.layer_weight[i]
+        sorted_indexes = sorted(range(len(layer_grad_norm_list)), key=lambda k: layer_grad_norm_list[k], reverse=True)
 
-        if mod == "max":
-            sel_layer = np.argmax(weight_layer_grad_norm_list)
-        elif mod == "min":
-            sel_layer = np.argmin(weight_layer_grad_norm_list)
-        else:
-            raise ValueError("mod must be max or min")
-
-        self.layer_weight[sel_layer] *= 0.95
-        # sorted_list = sorted(enumerate(layer_grad_norm_list), key=lambda x: x[1])
-        # sel_layer = sorted_list[7][0]
         self.model.zero_grad()
-        return sel_layer, weight_layer_grad_norm_list, layer_grad_norm_list
+        return sorted_indexes, layer_grad_norm_list
 
-    def require_grad(self, i):
+    def require_grad(self, idx_list):
         for n, p in self.model.named_parameters():
             if "lora" in n:
                 p.requires_grad = False
-        for n, p in self.model.base_model.model.model.layers[4 * i:4 * i + 4].named_parameters():
-            if "lora" in n:
-                p.requires_grad = True
+        for i in idx_list:
+            for n, p in self.model.base_model.model.model.layers[i].named_parameters():
+                if "lora" in n:
+                    p.requires_grad = True
 
     def require_grad_all(self):
         for n, p in self.model.named_parameters():
