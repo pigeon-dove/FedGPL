@@ -104,8 +104,8 @@ class LlmFedSplitTrainer:
             acc_sum, loss_sum = 0, 0
             self.require_grad_all()
             sorted_indexes, layer_grad_norm_list = self.calc_select_layer()
-            # select_indexes = sorted_indexes[:4]
-            select_indexes = sorted_indexes
+            select_indexes = sorted_indexes[:3] + sorted_indexes[-5:]
+            # select_indexes = sorted_indexes
             self.require_grad(select_indexes)
 
             lora_weight = save_lora_weight(self.model, self.lora_module_name)
