@@ -1,10 +1,8 @@
 # %%
+import argparse
 import math
 import os
 import re
-import time
-
-import pandas as pd
 import torch
 from datasets import load_dataset
 from peft import PeftModel
@@ -23,10 +21,19 @@ token = "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"
 model_name = "meta-llama/Llama-2-7b-chat-hf"
 data_name = "gsm8k"
 
-exp_name = "gsm8k-origin"
-# weights_file = "weights-250"
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--exp_name", required=True, type=str)
+    parser.add_argument("--weight_path", required=True, type=str)
+    return parser.parse_args()
+
+
+config = parse_args()
+
+exp_name = config.exp_name
+weight_path = config.weight_path
 seed = 3407
-batch_size = 2
 instruction = "Please solve the following math problem and provide the answer in the format '### <number>' at the end."
 
 # %%
@@ -44,8 +51,8 @@ tokenizer.sep_token = tokenizer.eos_token
 tokenizer.cls_token = tokenizer.eos_token
 tokenizer.mask_token = tokenizer.eos_token
 
-# model = PeftModel.from_pretrained(model, f"./result/{exp_name}/{weights_file}", device_map="auto")
-# model = model.merge_and_unload()
+model = PeftModel.from_pretrained(model, weight_path, device_map="auto")
+model = model.merge_and_unload()
 model.eval()
 
 set_seed(seed)
@@ -80,7 +87,7 @@ def get_correct_ans(s):
 
 
 # %%
-writer = SummaryWriter(f"./result/{exp_name}/logs", flush_secs=30)
+writer = SummaryWriter(f"./result/ans_acc/{exp_name}/logs", flush_secs=30)
 
 loop = tqdm(test_ds, desc="test", position=0)
 for i, data in enumerate(loop):
@@ -89,8 +96,6 @@ for i, data in enumerate(loop):
 
     prompt = f"[INST] <<SYS>>\n{instruction}\n<</SYS>>\n{question} [/INST]"
     input = tokenizer(prompt, return_tensors="pt").to(model.device)
-
-
 
     generate_ids = model.generate(
         input_ids=input['input_ids'],
