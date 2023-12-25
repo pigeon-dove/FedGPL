@@ -106,7 +106,8 @@ class LlmFedSplitTrainer:
             sorted_indexes, layer_grad_norm_list = self.calc_select_layer()
             # select_indexes = sorted_indexes[:5] + sorted_indexes[-3:]
             # select_indexes = sorted_indexes[:8]
-            select_indexes = sorted_indexes[:6]
+            # select_indexes = sorted_indexes[:6]
+            select_indexes = sorted_indexes[:6] + sorted_indexes[-2:]
             # select_indexes = sorted_indexes
             self.require_grad(select_indexes)
 
