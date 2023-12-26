@@ -5,7 +5,7 @@
 #python eval_ans_acc.py --exp_name=231218-1540-eval --weight_path=./result/231218-1540/weights-400
 #python eval_ans_acc.py --exp_name=231213-1433-eval --weight_path=./result/231213-1433/weights-500
 
-python eval_ans_acc.py --exp_name=231128-2116-eval --weight_path=./result/231128-2116/weights-250
-python eval_ans_acc.py --exp_name=231220-1636-eval --weight_path=./result/231220-1636/weights-400
-python eval_ans_acc.py --exp_name=original-eval
+#python eval_ans_acc.py --exp_name=231128-2116-eval --weight_path=./result/231128-2116/weights-250
+#python eval_ans_acc.py --exp_name=231220-1636-eval --weight_path=./result/231220-1636/weights-400
+#python eval_ans_acc.py --exp_name=original-eval
 
