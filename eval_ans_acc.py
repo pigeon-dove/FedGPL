@@ -25,7 +25,7 @@ data_name = "gsm8k"
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp_name", required=True, type=str)
-    parser.add_argument("--weight_path", required=True, type=str)
+    parser.add_argument("--weight_path", default="", type=str)
     return parser.parse_args()
 
 
@@ -51,8 +51,9 @@ tokenizer.sep_token = tokenizer.eos_token
 tokenizer.cls_token = tokenizer.eos_token
 tokenizer.mask_token = tokenizer.eos_token
 
-model = PeftModel.from_pretrained(model, weight_path, device_map="auto")
-model = model.merge_and_unload()
+if weight_path != "":
+    model = PeftModel.from_pretrained(model, weight_path, device_map="auto")
+    model = model.merge_and_unload()
 model.eval()
 
 set_seed(seed)
