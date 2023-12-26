@@ -9,3 +9,5 @@
 #python eval_ans_acc.py --exp_name=231220-1636-eval --weight_path=./result/231220-1636/weights-400
 #python eval_ans_acc.py --exp_name=original-eval
 
+python eval_ans_acc.py --exp_name=231226-1638-eval --weight_path=./result/231226-1638/weights-450
+
