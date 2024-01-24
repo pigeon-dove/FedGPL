@@ -114,12 +114,12 @@ class LlmFedSplitTrainer:
 
             select_indexes = [28, 29, 30, 31]
 
-            max = -math.inf
+            max_val = -math.inf
             max_idx = 0
             for i in range(0, 28, 4):
                 tmp = sum(layer_grad_norm_list[i:i + 4])
-                if tmp > max:
-                    max = tmp
+                if tmp > max_val:
+                    max_val = tmp
                     max_idx = i
             select_indexes += list(range(32))[max_idx: max_idx + 4]
 
