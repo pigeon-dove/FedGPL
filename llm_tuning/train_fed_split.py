@@ -1,5 +1,6 @@
 import collections
 import copy
+import math
 import random
 from itertools import cycle
 
@@ -104,12 +105,24 @@ class LlmFedSplitTrainer:
             acc_sum, loss_sum = 0, 0
             self.require_grad_all()
             sorted_indexes, layer_grad_norm_list = self.calc_select_layer()
+            # select_indexes = sorted_indexes
             # select_indexes = sorted_indexes[:5] + sorted_indexes[-3:]
             # select_indexes = sorted_indexes[:8]
             # select_indexes = sorted_indexes[:6]
             # select_indexes = sorted_indexes[:6] + sorted_indexes[-2:]
-            select_indexes = sorted_indexes[:7] + sorted_indexes[-1:]
-            # select_indexes = sorted_indexes
+            # select_indexes = sorted_indexes[:7] + sorted_indexes[-1:]
+
+            select_indexes = [28, 29, 30, 31]
+
+            max = -math.inf
+            max_idx = 0
+            for i in range(0, 28, 4):
+                tmp = sum(layer_grad_norm_list[i:i + 4])
+                if tmp > max:
+                    max = tmp
+                    max_idx = i
+            select_indexes += list(range(32))[max_idx: max_idx + 4]
+
             self.require_grad(select_indexes)
 
             lora_weight = save_lora_weight(self.model, self.lora_module_name)
