@@ -78,10 +78,14 @@ class LlmFedSplitTrainer:
         self.tokenizer = tokenizer
         self.config = config
         self.client_list = []
-        base_size = len(train_ds) // config.client_num
-        remainder = len(train_ds) % config.client_num
+        server_ds, client_ds = random_split(train_ds,
+                                            [int(len(train_ds) * 0.05), len(train_ds) - int(len(train_ds) * 0.05)])
+        self.server_dl = cycle(DataLoader(server_ds, batch_size=config.batch_size, shuffle=True))
+
+        base_size = len(client_ds) // config.client_num
+        remainder = len(client_ds) % config.client_num
         split_sizes = [base_size + 1 if i < remainder else base_size for i in range(config.client_num)]
-        train_ds_split = random_split(train_ds, split_sizes)
+        train_ds_split = random_split(client_ds, split_sizes)
 
         for client_ds in train_ds_split:
             client = FedClient(client_ds, self.model, tokenizer, config.batch_size, config.grad_accum_steps,
@@ -227,9 +231,8 @@ class LlmFedSplitTrainer:
     def calc_select_layer(self):
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
         self.model.zero_grad()
-        val_iter = iter(self.val_dl)
         for i in range(4):
-            batch_data = next(val_iter)
+            batch_data = next(self.server_dl)
             input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
                                                                    batch_data["attention_mask"],
                                                                    batch_data["label_mask"],
@@ -262,7 +265,7 @@ class LlmFedSplitTrainer:
         all_grad = {}
         for n, p in self.model.named_parameters():
             if p.requires_grad:
-                all_grad[n] = p.grad.detach().clone() / 10
+                all_grad[n] = p.grad.detach().clone()
 
         self.model.zero_grad()
         return sorted_indexes, layer_grad_norm_list, all_grad
