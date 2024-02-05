@@ -109,15 +109,16 @@ class LlmFedSplitTrainer:
             self.require_grad_all()
             sorted_indexes, layer_grad_norm_list, all_grad = self.calc_select_layer()
 
-            select_indexes = [28, 29, 30, 31]
-            max_val = -math.inf
-            max_idx = 0
-            for i in range(0, 28, 4):
-                tmp = sum(layer_grad_norm_list[i:i + 4])
-                if tmp > max_val:
-                    max_val = tmp
-                    max_idx = i
-            select_indexes += list(range(32))[max_idx: max_idx + 4]
+            select_indexes = sorted_indexes[:8]
+            # select_indexes = [28, 29, 30, 31]
+            # max_val = -math.inf
+            # max_idx = 0
+            # for i in range(0, 28, 4):
+            #     tmp = sum(layer_grad_norm_list[i:i + 4])
+            #     if tmp > max_val:
+            #         max_val = tmp
+            #         max_idx = i
+            # select_indexes += list(range(32))[max_idx: max_idx + 4]
 
             self.require_grad(select_indexes)
 
