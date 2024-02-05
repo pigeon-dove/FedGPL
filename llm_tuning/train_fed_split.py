@@ -12,6 +12,7 @@ from tensorboardX import SummaryWriter
 from torch.optim import lr_scheduler
 from torch.utils.data import random_split, DataLoader
 from tqdm import tqdm
+from bitsandbytes import functional as bf
 
 
 def data_to_device(*args, device="cuda"):
@@ -91,29 +92,24 @@ class LlmFedSplitTrainer:
         writer = SummaryWriter(f"./result/{self.config.exp_name}/logs", flush_secs=10)
         writer.add_hparams(self.config.__dict__, {})
 
-        self.init_with_val()
+        # self.init_with_val()
 
-        server_optimizer = [
-            torch.optim.AdamW(layer.parameters(), lr=self.config.lr)
-            for layer in self.model.base_model.model.model.layers
-        ]
+        # server_optimizer = [
+        #     torch.optim.AdamW(layer.parameters(), lr=self.config.lr)
+        #     for layer in self.model.base_model.model.model.layers
+        # ]
 
-        loop = tqdm(range(self.config.max_steps), ncols=120)
+        server_optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
+
+        loop = tqdm(range(self.config.max_steps), ncols=140)
         for step in loop:
             self.model.train()
             grad_collector = MeanGradCollector()
             acc_sum, loss_sum = 0, 0
             self.require_grad_all()
-            sorted_indexes, layer_grad_norm_list = self.calc_select_layer()
-            # select_indexes = sorted_indexes
-            # select_indexes = sorted_indexes[:5] + sorted_indexes[-3:]
-            # select_indexes = sorted_indexes[:8]
-            # select_indexes = sorted_indexes[:6]
-            # select_indexes = sorted_indexes[:6] + sorted_indexes[-2:]
-            # select_indexes = sorted_indexes[:7] + sorted_indexes[-1:]
+            sorted_indexes, layer_grad_norm_list, all_grad = self.calc_select_layer()
 
             select_indexes = [28, 29, 30, 31]
-
             max_val = -math.inf
             max_idx = 0
             for i in range(0, 28, 4):
@@ -136,13 +132,19 @@ class LlmFedSplitTrainer:
             mean_grad = grad_collector.mean_grad(lr=self.config.client_lr)
             mean_acc, mean_loss = acc_sum / self.config.client_num_per_step, loss_sum / self.config.client_num_per_step
 
-            for i in select_indexes:
-                server_optimizer[i].zero_grad()
+            server_optimizer.zero_grad()
+
             for n, p in self.model.named_parameters():
                 if p.requires_grad:
-                    p.grad = mean_grad[n]
-            for i in select_indexes:
-                server_optimizer[i].step()
+                    all_grad[n] = mean_grad[n]
+
+            self.require_grad_all()
+
+            for n, p in self.model.named_parameters():
+                if p.requires_grad:
+                    p.grad = all_grad[n]
+
+            server_optimizer.step()
 
             writer.add_scalar("accuracy/train", mean_acc, step)
             writer.add_scalar("loss/train", mean_loss, step)
@@ -158,6 +160,7 @@ class LlmFedSplitTrainer:
                 writer.add_scalar("loss/validate", val_loss, step)
                 writer.add_scalar("accuracy/validate", val_acc, step)
                 self.model.save_pretrained(f"./result/{self.config.exp_name}/weights-{step + 1}")
+            writer.flush()
         writer.close()
 
     def init_with_val(self):
@@ -169,7 +172,7 @@ class LlmFedSplitTrainer:
         new_dataloader = [next(val_iter) for _ in range(len(self.val_dl) // 20)]
 
         for e in range(1):
-            loop = tqdm(new_dataloader, desc="init_with_val", position=0, ncols=120)
+            loop = tqdm(new_dataloader, desc="init_with_val", position=0, ncols=140)
             for batch_data in loop:
                 input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
                                                                        batch_data["attention_mask"],
@@ -199,7 +202,7 @@ class LlmFedSplitTrainer:
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
         loss_list, acc_list = [], []
 
-        loop = tqdm(self.val_dl, desc="validate", position=0, ncols=120)
+        loop = tqdm(self.val_dl, desc="validate", position=0, ncols=140)
         with torch.no_grad():
             for step, batch_data in enumerate(loop):
                 input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
@@ -247,14 +250,21 @@ class LlmFedSplitTrainer:
                         lora_a = module.lora_A.default.weight
                         lora_b = module.lora_B.default.weight
                         grad_w = lora_b @ lora_a.grad + lora_b.grad @ lora_a
-                        gradient_norm.append(torch.norm(grad_w, p=2).item())
+                        weight_w = bf.dequantize_fp4(module.base_layer.weight.data,
+                                                     module.base_layer.weight.quant_state) + lora_b @ lora_a + 1e-9
+                        gradient_norm.append(torch.norm(grad_w / weight_w, p=2).item())
                 gradient_norm = sum(gradient_norm) / len(gradient_norm)
                 layer_grad_norm_list.append(gradient_norm)
 
         sorted_indexes = sorted(range(len(layer_grad_norm_list)), key=lambda k: layer_grad_norm_list[k], reverse=True)
 
+        all_grad = {}
+        for n, p in self.model.named_parameters():
+            if p.requires_grad:
+                all_grad[n] = p.grad.detach().clone() / 10
+
         self.model.zero_grad()
-        return sorted_indexes, layer_grad_norm_list
+        return sorted_indexes, layer_grad_norm_list, all_grad
 
     def require_grad(self, idx_list):
         for n, p in self.model.named_parameters():
