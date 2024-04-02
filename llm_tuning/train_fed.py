@@ -49,9 +49,7 @@ class FedClient:
                 if self.peft_alg == "p-tuning":
                     prompt_len = self.model.prompt_encoder.default.embedding.num_embeddings
                     shift_logits = output.logits[..., prompt_len:-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
-                elif self.peft_alg == "prefix-tuning":
-                    shift_logits = output.logits[..., 20:-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
-                elif self.peft_alg == "lora":
+                elif self.peft_alg == "lora" or self.peft_alg == "prompt-tuning":
                     shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
                 shift_labels = input_ids[..., 1:].contiguous().view(-1)
                 shift_mask = label_mask[..., 1:].contiguous().view(-1)
@@ -81,6 +79,7 @@ class LlmFedTrainer:
 
     def __init__(self, model, tokenizer, train_ds, val_dl, config):
         self.model = model.to(config.device)
+        self.tokenizer = tokenizer
         self.lora_module_name = self.get_extra_module_name()
         self.val_dl = val_dl
         self.config = config
@@ -163,9 +162,7 @@ class LlmFedTrainer:
                 if self.config.peft == "p-tuning":
                     prompt_len = self.model.prompt_encoder.default.embedding.num_embeddings
                     shift_logits = output.logits[..., prompt_len:-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
-                elif self.config.peft == "prefix-tuning":
-                    shift_logits = output.logits[..., 20:-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
-                elif self.config.peft == "lora":
+                elif self.config.peft == "lora" or self.config.peft == "prompt-tuning":
                     shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
                 shift_labels = input_ids[..., 1:].contiguous().view(-1)
                 shift_mask = label_mask[..., 1:].contiguous().view(-1)

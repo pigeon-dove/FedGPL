@@ -32,15 +32,15 @@ def get_lora_model(model, lora_r=16):
     return model
 
 
-def get_ptuning_model(model, token_dim=4096):
+def get_ptuning_model(model):
     config = PromptEncoderConfig(
         peft_type="P_TUNING",
         task_type="CAUSAL_LM",
         num_virtual_tokens=20,
-        token_dim=token_dim,
+        token_dim=model.config.hidden_size,
         num_transformer_submodules=1,
-        num_attention_heads=12,
-        num_layers=12,
+        num_attention_heads=model.config.num_attention_heads,
+        num_layers=model.config.num_hidden_layers,
         encoder_reparameterization_type="MLP",
         encoder_hidden_size=768,
     )
@@ -49,16 +49,15 @@ def get_ptuning_model(model, token_dim=4096):
     return model
 
 
-def get_prefix_model(model, token_dim=4096):
+def get_prompt_model(model):
     config = PrefixTuningConfig(
-        peft_type="PREFIX_TUNING",
+        peft_type="PROMPT_TUNING",
         task_type="CAUSAL_LM",
         num_virtual_tokens=20,
-        token_dim=token_dim,
+        token_dim=model.config.hidden_size,
         num_transformer_submodules=1,
-        num_attention_heads=12,
-        num_layers=12,
-        encoder_hidden_size=768,
+        num_attention_heads=model.config.num_attention_heads,
+        num_layers=model.config.num_hidden_layers
     )
     model = get_peft_model(model, config)
     return model
