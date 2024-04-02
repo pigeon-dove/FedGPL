@@ -20,7 +20,7 @@ def data_to_device(*args, device="cuda"):
 
 class FedClient:
 
-    def __init__(self, train_ds, model, tokenizer, batch_size, accum_steps, batch_num, epoch, client_lr):
+    def __init__(self, train_ds, model, tokenizer, batch_size, accum_steps, batch_num, epoch, client_lr, fed_alg, peft_alg):
         self.cycled_dl = cycle(DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=False))
         self.model = model
         self.tokenizer = tokenizer
@@ -28,6 +28,8 @@ class FedClient:
         self.batch_num = batch_num
         self.epoch = epoch
         self.client_lr = client_lr
+        self.fed_alg = fed_alg
+        self.peft_alg = peft_alg
 
     def local_train(self, lora_weight):
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
@@ -42,12 +44,25 @@ class FedClient:
                                                                        batch_data["attention_mask"],
                                                                        batch_data["label_mask"],
                                                                        device=self.model.device)
-                output = self.model.forward(input_ids, attention_mask)
-                shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
+                output = self.model.forward(input_ids=input_ids, attention_mask=attention_mask)
+
+                if self.peft_alg == "p-tuning":
+                    prompt_len = self.model.prompt_encoder.default.embedding.num_embeddings
+                    shift_logits = output.logits[..., prompt_len:-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
+                elif self.peft_alg == "prefix-tuning":
+                    shift_logits = output.logits[..., 20:-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
+                elif self.peft_alg == "lora":
+                    shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
                 shift_labels = input_ids[..., 1:].contiguous().view(-1)
                 shift_mask = label_mask[..., 1:].contiguous().view(-1)
 
                 loss = (criterion(shift_logits, shift_labels) * shift_mask).sum() / (shift_mask.sum() + 1e-9)
+                prox_loss = 0
+                if self.fed_alg == "FedProx":
+                    for n, p in self.model.named_parameters():
+                        if p.requires_grad:
+                            prox_loss += 0.01 * torch.norm(p - lora_weight[n], p=2)
+                loss += prox_loss
                 acc = ((shift_logits.argmax(dim=-1) == shift_labels) * shift_mask).sum() / (shift_mask.sum() + 1e-9)
                 loss.backward()
 
@@ -66,7 +81,7 @@ class LlmFedTrainer:
 
     def __init__(self, model, tokenizer, train_ds, val_dl, config):
         self.model = model.to(config.device)
-        self.lora_module_name = self.get_lora_module_name()
+        self.lora_module_name = self.get_extra_module_name()
         self.val_dl = val_dl
         self.config = config
         self.client_list = []
@@ -77,24 +92,30 @@ class LlmFedTrainer:
 
         for client_ds in train_ds_split:
             client = FedClient(client_ds, self.model, tokenizer, config.batch_size, config.grad_accum_steps,
-                               config.client_batch_per_step, config.client_epoch, config.client_lr)
+                               config.client_batch_per_step, config.client_epoch, config.client_lr,
+                               config.fed_alg, config.peft)
             self.client_list.append(client)
 
     def train(self):
         writer = SummaryWriter(f"./result/{self.config.exp_name}/logs", flush_secs=10)
         writer.add_hparams(self.config.__dict__, {})
 
-        server_optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
+        if self.config.fed_alg == "FedAdam":
+            server_optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
+        else:
+            server_optimizer = torch.optim.SGD(self.model.parameters(), lr=self.config.lr)
+
+        val_acc_history = []
 
         loop = tqdm(range(self.config.max_steps), ncols=100)
         for step in loop:
             self.model.train()
-            lora_weight = save_lora_weight(self.model, self.lora_module_name)
+            lora_weight = save_extra_weight(self.model, self.lora_module_name)
             grad_collector = MeanGradCollector()
             acc_sum, loss_sum = 0, 0
             for client in random.sample(self.client_list, self.config.client_num_per_step):
                 grad, acc, loss = client.local_train(lora_weight)
-                load_lora_weight(self.model, lora_weight)  # restore the model weights
+                load_extra_weight(self.model, lora_weight)  # restore the model weights
                 grad_collector.add(grad)
                 acc_sum += acc
                 loss_sum += loss
@@ -115,12 +136,15 @@ class LlmFedTrainer:
                 writer.add_scalar("loss/validate", val_loss, step)
                 writer.add_scalar("accuracy/validate", val_acc, step)
                 self.model.save_pretrained(f"./result/{self.config.exp_name}/weights-{step + 1}")
+                val_acc_history.append(val_acc)
+                if len(val_acc_history) >= 3 and (val_acc_history[-1] < val_acc_history[-2] < val_acc_history[-3]):
+                    break
         writer.close()
 
-    def get_lora_module_name(self):
+    def get_extra_module_name(self):
         name_list = []
-        for n, _ in self.model.named_parameters():
-            if "lora" in n:
+        for n, p in self.model.named_parameters():
+            if hasattr(p, "requires_grad") and p.requires_grad:
                 name_list.append(n)
         return name_list
 
@@ -136,7 +160,13 @@ class LlmFedTrainer:
                                                                        device=self.model.device)
 
                 output = self.model.forward(input_ids, attention_mask)
-                shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.model.config.vocab_size)
+                if self.config.peft == "p-tuning":
+                    prompt_len = self.model.prompt_encoder.default.embedding.num_embeddings
+                    shift_logits = output.logits[..., prompt_len:-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
+                elif self.config.peft == "prefix-tuning":
+                    shift_logits = output.logits[..., 20:-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
+                elif self.config.peft == "lora":
+                    shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
                 shift_labels = input_ids[..., 1:].contiguous().view(-1)
                 shift_mask = label_mask[..., 1:].contiguous().view(-1)
 
@@ -149,22 +179,22 @@ class LlmFedTrainer:
         return sum(loss_list) / len(loss_list), sum(acc_list) / len(acc_list)
 
 
-def save_lora_weight(model, lora_module_name):
+def save_extra_weight(model, lora_module_name):
     lora_weight = {}
     for n in lora_module_name:
         lora_weight[n] = get_nested_field(model, n).detach().clone()
     return lora_weight
 
 
-def load_lora_weight(model, lora_weight):
+def load_extra_weight(model, lora_weight):
     for n, w in lora_weight.items():
         get_nested_field(model, n).data.copy_(w)
     model.train()
 
 
-def calc_grad(lora_weight, model):
+def calc_grad(extra_weight, model):
     grad = collections.OrderedDict()
-    for n, p in lora_weight.items():
+    for n, p in extra_weight.items():
         grad[n] = (p - get_nested_field(model, n)).detach().clone()
     return grad
 

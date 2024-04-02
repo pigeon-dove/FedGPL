@@ -96,14 +96,9 @@ class LlmFedSplitTrainer:
         writer = SummaryWriter(f"./result/{self.config.exp_name}/logs", flush_secs=10)
         writer.add_hparams(self.config.__dict__, {})
 
-        # self.init_with_val()
-
-        # server_optimizer = [
-        #     torch.optim.AdamW(layer.parameters(), lr=self.config.lr)
-        #     for layer in self.model.base_model.model.model.layers
-        # ]
-
         server_optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
+
+        val_acc_history = []
 
         loop = tqdm(range(self.config.max_steps), ncols=140)
         for step in loop:
@@ -113,16 +108,7 @@ class LlmFedSplitTrainer:
             self.require_grad_all()
             sorted_indexes, layer_grad_norm_list, all_grad = self.calc_select_layer()
 
-            select_indexes = sorted_indexes[:8]
-            # select_indexes = [28, 29, 30, 31]
-            # max_val = -math.inf
-            # max_idx = 0
-            # for i in range(0, 28, 4):
-            #     tmp = sum(layer_grad_norm_list[i:i + 4])
-            #     if tmp > max_val:
-            #         max_val = tmp
-            #         max_idx = i
-            # select_indexes += list(range(32))[max_idx: max_idx + 4]
+            select_indexes = sorted_indexes[:self.config.max_layer_num] + sorted_indexes[:-self.config.min_layer_num]
 
             self.require_grad(select_indexes)
 
@@ -165,6 +151,9 @@ class LlmFedSplitTrainer:
                 writer.add_scalar("loss/validate", val_loss, step)
                 writer.add_scalar("accuracy/validate", val_acc, step)
                 self.model.save_pretrained(f"./result/{self.config.exp_name}/weights-{step + 1}")
+                val_acc_history.append(val_acc)
+                if len(val_acc_history) >= 3 and (val_acc_history[-1] < val_acc_history[-2] < val_acc_history[-3]):
+                    break
             writer.flush()
         writer.close()
 
@@ -256,7 +245,7 @@ class LlmFedSplitTrainer:
                         grad_w = lora_b @ lora_a.grad + lora_b.grad @ lora_a
                         weight_w = bf.dequantize_fp4(module.base_layer.weight.data,
                                                      module.base_layer.weight.quant_state) + lora_b @ lora_a + 1e-9
-                        gradient_norm.append(torch.norm(grad_w / weight_w, p=2).item())
+                        gradient_norm.append(torch.norm(grad_w / weight_w, p=1).item())
                 gradient_norm = sum(gradient_norm) / len(gradient_norm)
                 layer_grad_norm_list.append(gradient_norm)
 
@@ -265,7 +254,7 @@ class LlmFedSplitTrainer:
         all_grad = {}
         for n, p in self.model.named_parameters():
             if p.requires_grad:
-                all_grad[n] = p.grad.detach().clone()
+                all_grad[n] = p.grad.detach().clone() * 0.1
 
         self.model.zero_grad()
         return sorted_indexes, layer_grad_norm_list, all_grad

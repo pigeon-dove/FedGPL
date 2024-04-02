@@ -10,7 +10,7 @@ import itertools
 from llm_tuning.dataset import LlamaDataset
 from llm_tuning.train import LlmTrainer
 from llm_tuning.train_fed import LlmFedTrainer
-from llm_tuning.model import get_4bit_model, get_lora_model, get_tokenizer
+from llm_tuning.model import get_4bit_model, get_lora_model, get_tokenizer, get_ptuning_model, get_prefix_model
 from llm_tuning.train_fed_split import LlmFedSplitTrainer
 from llm_tuning.utils import set_seed
 
@@ -28,6 +28,8 @@ def parse_args():
     parser.add_argument("--exp_name", default=time.strftime("%y%m%d-%H%M", time.localtime(time.time())), type=str)
     parser.add_argument("--device", default="cuda:1", type=str)
 
+    parser.add_argument("--fed_alg", default="FedAdam", type=str, choices=["FedAdam", "FedAVG", "FedProx"])
+    parser.add_argument("--peft", default="lora", type=str, choices=["lora", "p-tuning", "prefix-tuning"])
     parser.add_argument("--client_num", default=50, type=int)
     parser.add_argument("--client_num_per_step", default=4, type=int)
 
@@ -41,14 +43,22 @@ def parse_args():
 
     parser.add_argument("--lr", default=5e-4, type=float)
     parser.add_argument("--client_lr", default=1e-4, type=float)
-    parser.add_argument("--train_mode", default="fedSplit", type=str, choices=["local", "fed", "fedSplit"])
+    parser.add_argument("--train_mode", default="fedGradFocus", type=str, choices=["local", "fed", "fedGradFocus"])
+    parser.add_argument("--max_layer_num", default=6, type=int)
+    parser.add_argument("--min_layer_num", default=2, type=int)
     return parser.parse_args()
 
 
 config = parse_args()
 
 # %%
-model = get_lora_model(get_4bit_model(model_name, token, config.device), lora_r=64)
+model = get_4bit_model(model_name, token, config.device)
+if config.peft == "lora":
+    model = get_lora_model(model)
+elif config.peft == "p-tuning":
+    model = get_ptuning_model(model)
+elif config.peft == "prefix-tuning":
+    model = get_prefix_model(model)
 
 tokenizer = get_tokenizer(model_name, token)
 
@@ -69,7 +79,7 @@ test_dl = DataLoader(test_ds, batch_size=config.batch_size, shuffle=False)
 trainer = None
 if config.train_mode == "fed":
     trainer = LlmFedTrainer(model, tokenizer, train_ds, val_dl, config)
-elif config.train_mode == "fedSplit":
+elif config.train_mode == "fedGradFocus":
     trainer = LlmFedSplitTrainer(model, tokenizer, train_ds, val_dl, config)
 elif config.train_mode == "local":
     trainer = LlmTrainer(model, tokenizer, train_ds, val_dl, config)

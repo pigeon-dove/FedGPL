@@ -1,5 +1,5 @@
 import torch
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, get_peft_model, PromptEncoderConfig, PrefixTuningConfig
 from transformers import BitsAndBytesConfig, AutoModelForCausalLM, LlamaTokenizer
 
 
@@ -22,13 +22,45 @@ def get_4bit_model(model_name, token, device):
 
 
 def get_lora_model(model, lora_r=16):
-    lora_config = LoraConfig(r=lora_r,
+    config = LoraConfig(r=lora_r,
                              lora_alpha=32,
                              lora_dropout=0.1,
                              bias="none",
                              task_type="CAUSAL_LM")
 
-    model = get_peft_model(model, lora_config)
+    model = get_peft_model(model, config)
+    return model
+
+
+def get_ptuning_model(model, token_dim=4096):
+    config = PromptEncoderConfig(
+        peft_type="P_TUNING",
+        task_type="CAUSAL_LM",
+        num_virtual_tokens=20,
+        token_dim=token_dim,
+        num_transformer_submodules=1,
+        num_attention_heads=12,
+        num_layers=12,
+        encoder_reparameterization_type="MLP",
+        encoder_hidden_size=768,
+    )
+
+    model = get_peft_model(model, config)
+    return model
+
+
+def get_prefix_model(model, token_dim=4096):
+    config = PrefixTuningConfig(
+        peft_type="PREFIX_TUNING",
+        task_type="CAUSAL_LM",
+        num_virtual_tokens=20,
+        token_dim=token_dim,
+        num_transformer_submodules=1,
+        num_attention_heads=12,
+        num_layers=12,
+        encoder_hidden_size=768,
+    )
+    model = get_peft_model(model, config)
     return model
 
 
