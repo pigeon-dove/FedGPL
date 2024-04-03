@@ -96,8 +96,8 @@ class MathDataset(Dataset):
             "attention_mask": attention_mask,
             "label_mask": label_mask,
             "origin_token_length": question_token.length + answer_token.length,
-            "question": data["question"],
-            "answer": data["answer"]
+            "question": data["message_1"],
+            "answer": data["message_2"]
         }
 
 
