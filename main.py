@@ -7,7 +7,7 @@ from datasets import load_dataset
 from torch.utils.data import DataLoader, random_split
 import itertools
 
-from llm_tuning.dataset import LlamaDataset
+from llm_tuning.dataset import Gsm8kDataset, MathDataset
 from llm_tuning.train import LlmTrainer
 from llm_tuning.train_fed import LlmFedTrainer
 from llm_tuning.model import get_4bit_model, get_lora_model, get_tokenizer, get_ptuning_model, get_prompt_model
@@ -19,7 +19,6 @@ os.environ["https_proxy"] = "http://127.0.0.1:7890"
 token = "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"
 
 model_name = "meta-llama/Llama-2-7b-chat-hf"
-data_name = "gsm8k"
 seed = 3407
 
 
@@ -32,6 +31,7 @@ def parse_args():
     parser.add_argument("--peft", default="lora", type=str, choices=["lora", "p-tuning", "prompt-tuning"])
     parser.add_argument("--client_num", default=50, type=int)
     parser.add_argument("--client_num_per_step", default=4, type=int)
+    parser.add_argument("--data_name", default="gsm8k", type=str, choices=["gsm8k", "camel-ai/math"])
 
     parser.add_argument("--client_epoch", default=1, type=int)
     parser.add_argument("--client_batch_per_step", default=8, type=int)
@@ -63,10 +63,16 @@ elif config.peft == "prompt-tuning":
 tokenizer = get_tokenizer(model_name, token)
 
 set_seed(seed)
-full_dataset = torch.utils.data.ConcatDataset([
-    LlamaDataset(load_dataset(data_name, "main", split="train"), tokenizer, max_length=512),
-    LlamaDataset(load_dataset(data_name, "main", split="test"), tokenizer, max_length=512)
-])
+
+data_name = config.data_name
+if data_name == "gsm8k":
+    full_dataset = torch.utils.data.ConcatDataset([
+        Gsm8kDataset(load_dataset(data_name, "main", split="train"), tokenizer, max_length=512),
+        Gsm8kDataset(load_dataset(data_name, "main", split="test"), tokenizer, max_length=512)
+    ])
+elif data_name == "camel-ai/math":
+    full_dataset = MathDataset(load_dataset(data_name, split="train"), tokenizer, max_length=512)
+
 total_size = len(full_dataset)
 train_size = int(0.6 * total_size)
 val_size = int(0.2 * total_size)

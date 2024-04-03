@@ -11,7 +11,7 @@ from torch.utils.data import random_split, DataLoader
 from tqdm import tqdm
 from transformers import LlamaTokenizer, AutoModelForCausalLM
 
-from llm_tuning.dataset import LlamaDataset
+from llm_tuning.dataset import Gsm8kDataset
 from llm_tuning.utils import set_seed
 
 os.environ["http_proxy"] = "http://127.0.0.1:7890"
@@ -58,8 +58,8 @@ model.eval()
 
 set_seed(seed)
 full_dataset = torch.utils.data.ConcatDataset([
-    LlamaDataset(load_dataset(data_name, "main", split="train"), tokenizer, max_length=512),
-    LlamaDataset(load_dataset(data_name, "main", split="test"), tokenizer, max_length=512)
+    Gsm8kDataset(load_dataset(data_name, "main", split="train"), tokenizer, max_length=512),
+    Gsm8kDataset(load_dataset(data_name, "main", split="test"), tokenizer, max_length=512)
 ])
 total_size = len(full_dataset)
 train_size = int(0.6 * total_size)
