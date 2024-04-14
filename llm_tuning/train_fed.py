@@ -152,7 +152,7 @@ class LlmFedTrainer:
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
         loss_list, acc_list = [], []
         with torch.no_grad():
-            for step, batch_data in enumerate(tqdm(self.val_dl, desc="validate", position=0)):
+            for step, batch_data in enumerate(tqdm(self.val_dl, desc="validate", position=0, ncols=100)):
                 input_ids, attention_mask, label_mask = data_to_device(batch_data["input_ids"],
                                                                        batch_data["attention_mask"],
                                                                        batch_data["label_mask"],

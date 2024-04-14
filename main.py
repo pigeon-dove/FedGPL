@@ -4,10 +4,10 @@ import time
 import torch
 import argparse
 from datasets import load_dataset
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, random_split, ConcatDataset
 import itertools
 
-from llm_tuning.dataset import Gsm8kDataset, MathDataset
+from llm_tuning.dataset import Gsm8kDataset, MathDataset, SVAMPDataset, MultiArithDataset
 from llm_tuning.train import LlmTrainer
 from llm_tuning.train_fed import LlmFedTrainer
 from llm_tuning.model import get_4bit_model, get_lora_model, get_tokenizer, get_ptuning_model, get_prompt_model
@@ -18,20 +18,23 @@ os.environ["http_proxy"] = "http://127.0.0.1:7890"
 os.environ["https_proxy"] = "http://127.0.0.1:7890"
 token = "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"
 
-model_name = "meta-llama/Llama-2-7b-chat-hf"
 seed = 3407
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--exp_name", default=time.strftime("%y%m%d-%H%M", time.localtime(time.time())), type=str)
+    # parser.add_argument("--exp_name", default=time.strftime("%y%m%d-%H%M", time.localtime(time.time())), type=str)
+    parser.add_argument("--exp_name", default="test", type=str)
     parser.add_argument("--device", default="cuda:1", type=str)
 
     parser.add_argument("--fed_alg", default="FedAdam", type=str, choices=["FedAdam", "FedAVG", "FedProx"])
     parser.add_argument("--peft", default="lora", type=str, choices=["lora", "p-tuning", "prompt-tuning"])
     parser.add_argument("--client_num", default=50, type=int)
     parser.add_argument("--client_num_per_step", default=4, type=int)
-    parser.add_argument("--data_name", default="gsm8k", type=str, choices=["gsm8k", "camel-ai/math"])
+    parser.add_argument("--data_name", default="gsm8k", type=str,
+                        choices=["gsm8k", "camel-ai/math", "ChilleD/SVAMP", "ChilleD/MultiArith"])
+    parser.add_argument("--model_name", default="meta-llama/Llama-2-7b-chat-hf", type=str,
+                        choices=["meta-llama/Llama-2-7b-chat-hf", "TinyLlama/TinyLlama-1.1B-Chat-v1.0"])
 
     parser.add_argument("--client_epoch", default=1, type=int)
     parser.add_argument("--client_batch_per_step", default=8, type=int)
@@ -52,7 +55,8 @@ def parse_args():
 config = parse_args()
 
 # %%
-model = get_4bit_model(model_name, token, config.device)
+model = get_4bit_model(config.model_name, token, config.device)
+
 if config.peft == "lora":
     model = get_lora_model(model)
 elif config.peft == "p-tuning":
@@ -60,18 +64,30 @@ elif config.peft == "p-tuning":
 elif config.peft == "prompt-tuning":
     model = get_prompt_model(model)
 
-tokenizer = get_tokenizer(model_name, token)
+tokenizer = get_tokenizer(config.model_name, token)
 
 set_seed(seed)
 
 data_name = config.data_name
 if data_name == "gsm8k":
-    full_dataset = torch.utils.data.ConcatDataset([
-        Gsm8kDataset(load_dataset(data_name, "main", split="train"), tokenizer, max_length=512),
-        Gsm8kDataset(load_dataset(data_name, "main", split="test"), tokenizer, max_length=512)
+    full_dataset = ConcatDataset([
+        Gsm8kDataset(load_dataset(data_name, "main", split="train"), tokenizer, max_length=512, model_name=config.model_name),
+        Gsm8kDataset(load_dataset(data_name, "main", split="test"), tokenizer, max_length=512, model_name=config.model_name)
     ])
 elif data_name == "camel-ai/math":
-    full_dataset = MathDataset(load_dataset(data_name, split="train"), tokenizer, max_length=512)
+    full_dataset = MathDataset(load_dataset(data_name, split="train"), tokenizer, max_length=512, model_name=config.model_name)
+elif data_name == "ChilleD/SVAMP":
+    full_dataset = ConcatDataset([
+        SVAMPDataset(load_dataset(data_name, split="train"), tokenizer, max_length=300, model_name=config.model_name),
+        SVAMPDataset(load_dataset(data_name, split="test"), tokenizer, max_length=300, model_name=config.model_name)
+    ])
+elif data_name == "ChilleD/MultiArith":
+    full_dataset = ConcatDataset([
+        MultiArithDataset(load_dataset(data_name, split="train"), tokenizer, max_length=256, model_name=config.model_name),
+        MultiArithDataset(load_dataset(data_name, split="test"), tokenizer, max_length=256, model_name=config.model_name)
+    ])
+else:
+    raise f"dataset {data_name} not found"
 
 total_size = len(full_dataset)
 train_size = int(0.6 * total_size)

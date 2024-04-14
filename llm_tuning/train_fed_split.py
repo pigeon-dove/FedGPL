@@ -22,9 +22,19 @@ def data_to_device(*args, device="cuda"):
     return res
 
 
+def get_layers(model, model_name):
+    if model_name == "meta-llama/Llama-2-7b-chat-hf":
+        path = "base_model.model.model.layers"
+    elif model_name == "TinyLlama/TinyLlama-1.1B-Chat-v1.0":
+        path = "base_model.model.layers"
+    else:
+        raise f"model {model_name} not found"
+    return get_nested_field(model, path)
+
+
 class FedClient:
 
-    def __init__(self, train_ds, model, tokenizer, batch_size, accum_steps, batch_num, epoch, client_lr):
+    def __init__(self, train_ds, model, tokenizer, batch_size, accum_steps, batch_num, epoch, client_lr, model_name):
         self.cycled_dl = cycle(DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=False))
         self.model = model
         self.tokenizer = tokenizer
@@ -32,10 +42,11 @@ class FedClient:
         self.batch_num = batch_num
         self.epoch = epoch
         self.client_lr = client_lr
+        self.model_name = model_name
 
     def local_train(self, lora_weight, select_indexes):
         criterion = torch.nn.CrossEntropyLoss(reduction="none")
-        selected_parameters = [param for i, layer in enumerate(self.model.base_model.model.model.layers) if
+        selected_parameters = [param for i, layer in enumerate(get_layers(self.model, self.model_name)) if
                                i in select_indexes for param in layer.parameters()]
         optimizer = torch.optim.SGD(selected_parameters, lr=self.client_lr)
 
@@ -89,7 +100,7 @@ class LlmFedSplitTrainer:
 
         for client_ds in train_ds_split:
             client = FedClient(client_ds, self.model, tokenizer, config.batch_size, config.grad_accum_steps,
-                               config.client_batch_per_step, config.client_epoch, config.client_lr)
+                               config.client_batch_per_step, config.client_epoch, config.client_lr, config.model_name)
             self.client_list.append(client)
 
     def train(self):
@@ -236,7 +247,7 @@ class LlmFedSplitTrainer:
 
         layer_grad_norm_list = []
         with torch.no_grad():
-            for i, layer in enumerate(self.model.base_model.model.model.layers):
+            for i, layer in enumerate(get_layers(self.model, self.config.model_name)):
                 gradient_norm = []
                 for name, module in layer.named_modules():
                     if name.endswith("q_proj") or name.endswith("v_proj"):
@@ -264,7 +275,7 @@ class LlmFedSplitTrainer:
             if "lora" in n:
                 p.requires_grad = False
         for i in idx_list:
-            for n, p in self.model.base_model.model.model.layers[i].named_parameters():
+            for n, p in get_layers(self.model, self.config.model_name)[i].named_parameters():
                 if "lora" in n:
                     p.requires_grad = True
 
