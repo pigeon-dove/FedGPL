@@ -16,16 +16,16 @@ from llm_tuning.utils import set_seed
 
 os.environ["http_proxy"] = "http://127.0.0.1:7890"
 os.environ["https_proxy"] = "http://127.0.0.1:7890"
-token = "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"
 
 seed = 3407
-
 
 def parse_args():
     parser = argparse.ArgumentParser()
     # parser.add_argument("--exp_name", default=time.strftime("%y%m%d-%H%M", time.localtime(time.time())), type=str)
     parser.add_argument("--exp_name", default="test", type=str)
     parser.add_argument("--device", default="cuda:1", type=str)
+
+    parser.add_argument("--token", default="", type=str)
 
     parser.add_argument("--fed_alg", default="FedAdam", type=str, choices=["FedAdam", "FedAVG", "FedProx"])
     parser.add_argument("--peft", default="lora", type=str, choices=["lora", "p-tuning", "prompt-tuning"])
@@ -34,7 +34,9 @@ def parse_args():
     parser.add_argument("--data_name", default="gsm8k", type=str,
                         choices=["gsm8k", "camel-ai/math", "ChilleD/SVAMP", "ChilleD/MultiArith"])
     parser.add_argument("--model_name", default="meta-llama/Llama-2-7b-chat-hf", type=str,
-                        choices=["meta-llama/Llama-2-7b-chat-hf", "TinyLlama/TinyLlama-1.1B-Chat-v1.0"])
+                        choices=["meta-llama/Llama-2-7b-chat-hf",
+                                 "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+                                 "bigscience/bloom-3b"])
 
     parser.add_argument("--client_epoch", default=1, type=int)
     parser.add_argument("--client_batch_per_step", default=8, type=int)
@@ -49,12 +51,15 @@ def parse_args():
     parser.add_argument("--train_mode", default="fedGradFocus", type=str, choices=["local", "fed", "fedGradFocus"])
     parser.add_argument("--max_layer_num", default=6, type=int)
     parser.add_argument("--min_layer_num", default=2, type=int)
+
+    parser.add_argument("--grad_eval", default="lora_per_l1", type=str, choices=["l1", "l2", "lora_l1", "lora_l2", "lora_per_l1", "lora_per_l2"])
     return parser.parse_args()
 
 
 config = parse_args()
 
 # %%
+token = config.token
 model = get_4bit_model(config.model_name, token, config.device)
 
 if config.peft == "lora":
@@ -63,6 +68,7 @@ elif config.peft == "p-tuning":
     model = get_ptuning_model(model)
 elif config.peft == "prompt-tuning":
     model = get_prompt_model(model)
+model.print_trainable_parameters()
 
 tokenizer = get_tokenizer(config.model_name, token)
 

@@ -13,7 +13,9 @@ def get_prompt(instruction, question, model_name):
     if model_name == "meta-llama/Llama-2-7b-chat-hf":
         question_prompt = f"<s>[INST] <<SYS>>\n{instruction}\n<</SYS>>\n{question} [/INST] "
     elif model_name == "TinyLlama/TinyLlama-1.1B-Chat-v1.0":
-        question_prompt = f"<|system|>\n{instruction}</s>\n<|user|>\n{question}</s>[/INST] "
+        question_prompt = f"<|system|>\n{instruction}</s>\n<|user|>\n{question}</s>\n<|assistant|>\n"
+    elif model_name == "bigscience/bloom-3b":
+        question_prompt = f"{instruction}\nQuestion: {question}\nAnswer: "
     else:
         raise f"model {model_name} not found"
     return question_prompt
@@ -72,7 +74,7 @@ class Gsm8kDataset(Dataset):
 
 class MathDataset(Dataset):
     def __init__(self, dataset: Dataset, tokenizer: LlamaTokenizer, max_length, model_name):
-        self.dataset = Subset(dataset, torch.randperm(len(dataset))[:8000]).dataset
+        self.dataset = [data for data in dataset if data["topic;"] == "Algebra"]
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.model_name = model_name

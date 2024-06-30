@@ -26,7 +26,11 @@ def get_layers(model, model_name):
     if model_name == "meta-llama/Llama-2-7b-chat-hf":
         path = "base_model.model.model.layers"
     elif model_name == "TinyLlama/TinyLlama-1.1B-Chat-v1.0":
-        path = "base_model.model.layers"
+        path = "base_model.model.model.layers"
+    # elif model_name == "THUDM/chatglm3-6b":
+    #     path = "transformer.encoder.layers"
+    elif model_name == "bigscience/bloom-3b":
+        path = "base_model.model.transformer.h"
     else:
         raise f"model {model_name} not found"
     return get_nested_field(model, path)
@@ -61,7 +65,7 @@ class FedClient:
                                                                        batch_data["label_mask"],
                                                                        device=self.model.device)
                 output = self.model.forward(input_ids, attention_mask)
-                shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
+                shift_logits = output.logits[..., :-1, :].contiguous().view(-1, output.logits.size(-1))
                 shift_labels = input_ids[..., 1:].contiguous().view(-1)
                 shift_mask = label_mask[..., 1:].contiguous().view(-1)
 
@@ -90,7 +94,7 @@ class LlmFedSplitTrainer:
         self.config = config
         self.client_list = []
         server_ds, client_ds = random_split(train_ds,
-                                            [int(len(train_ds) * 0.05), len(train_ds) - int(len(train_ds) * 0.05)])
+                                            [int(len(train_ds) * 0.005), len(train_ds) - int(len(train_ds) * 0.005)])
         self.server_dl = cycle(DataLoader(server_ds, batch_size=config.batch_size, shuffle=True))
 
         base_size = len(client_ds) // config.client_num
@@ -118,6 +122,9 @@ class LlmFedSplitTrainer:
             acc_sum, loss_sum = 0, 0
             self.require_grad_all()
             sorted_indexes, layer_grad_norm_list, all_grad = self.calc_select_layer()
+
+            # 随机打乱！！！
+            np.random.shuffle(sorted_indexes)
 
             select_indexes = sorted_indexes[:self.config.max_layer_num] + sorted_indexes[:-self.config.min_layer_num]
 
@@ -156,14 +163,14 @@ class LlmFedSplitTrainer:
             writer.add_scalars("select/layer_grad_norm",
                                {f"layer_{i}": g for i, g in enumerate(layer_grad_norm_list)}, step)
 
-            loop.set_postfix(mean_acc=mean_acc, mean_loss=mean_loss, select_indexes=select_indexes)
+            loop.set_postfix(mean_acc=mean_acc, mean_loss=mean_loss)
             if (step + 1) % self.config.val_steps == 0 or (step + 1) == self.config.max_steps:
                 val_loss, val_acc = self.validate()
                 writer.add_scalar("loss/validate", val_loss, step)
                 writer.add_scalar("accuracy/validate", val_acc, step)
                 self.model.save_pretrained(f"./result/{self.config.exp_name}/weights-{step + 1}")
                 val_acc_history.append(val_acc)
-                if len(val_acc_history) >= 3 and (val_acc_history[-1] < val_acc_history[-2] < val_acc_history[-3]):
+                if len(val_acc_history) >= 3 and (val_acc_history[-1] <= val_acc_history[-2] <= val_acc_history[-3]):
                     break
             writer.flush()
         writer.close()
@@ -184,7 +191,7 @@ class LlmFedSplitTrainer:
                                                                        batch_data["label_mask"],
                                                                        device=self.model.device)
                 output = self.model.forward(input_ids, attention_mask)
-                shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
+                shift_logits = output.logits[..., :-1, :].contiguous().view(-1, output.logits.size(-1))
                 shift_labels = input_ids[..., 1:].contiguous().view(-1)
                 shift_mask = label_mask[..., 1:].contiguous().view(-1)
 
@@ -216,7 +223,7 @@ class LlmFedSplitTrainer:
                                                                        device=self.model.device)
 
                 output = self.model.forward(input_ids, attention_mask)
-                shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.model.config.vocab_size)
+                shift_logits = output.logits[..., :-1, :].contiguous().view(-1, output.logits.size(-1))
                 shift_labels = input_ids[..., 1:].contiguous().view(-1)
                 shift_mask = label_mask[..., 1:].contiguous().view(-1)
 
@@ -238,7 +245,7 @@ class LlmFedSplitTrainer:
                                                                    batch_data["label_mask"],
                                                                    device=self.model.device)
             output = self.model.forward(input_ids, attention_mask)
-            shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
+            shift_logits = output.logits[..., :-1, :].contiguous().view(-1, output.logits.size(-1))
             shift_labels = input_ids[..., 1:].contiguous().view(-1)
             shift_mask = label_mask[..., 1:].contiguous().view(-1)
 
@@ -250,13 +257,33 @@ class LlmFedSplitTrainer:
             for i, layer in enumerate(get_layers(self.model, self.config.model_name)):
                 gradient_norm = []
                 for name, module in layer.named_modules():
-                    if name.endswith("q_proj") or name.endswith("v_proj"):
+                    if name.endswith("q_proj") or name.endswith("v_proj") or name.endswith("query_key_value"):
                         lora_a = module.lora_A.default.weight
                         lora_b = module.lora_B.default.weight
-                        grad_w = lora_b @ lora_a.grad + lora_b.grad @ lora_a
-                        weight_w = bf.dequantize_fp4(module.base_layer.weight.data,
-                                                     module.base_layer.weight.quant_state) + lora_b @ lora_a + 1e-9
-                        gradient_norm.append(torch.norm(grad_w / weight_w, p=1).item())
+                        if self.config.grad_eval == "l1":
+                            gradient_norm.append(torch.norm(lora_a.grad, p=1).item())
+                            gradient_norm.append(torch.norm(lora_b.grad, p=1).item())
+                        elif self.config.grad_eval == "l2":
+                            gradient_norm.append(torch.norm(lora_a.grad, p=2).item())
+                            gradient_norm.append(torch.norm(lora_b.grad, p=2).item())
+                        elif self.config.grad_eval == "lora_l1":
+                            grad_w = lora_b @ lora_a.grad + lora_b.grad @ lora_a
+                            gradient_norm.append(torch.norm(grad_w, p=1).item())
+                        elif self.config.grad_eval == "lora_l2":
+                            grad_w = lora_b @ lora_a.grad + lora_b.grad @ lora_a
+                            gradient_norm.append(torch.norm(grad_w, p=2).item())
+                        elif self.config.grad_eval == "lora_per_l1":
+                            grad_w = lora_b @ lora_a.grad + lora_b.grad @ lora_a
+                            weight_w = bf.dequantize_fp4(module.base_layer.weight.data,
+                                                         module.base_layer.weight.quant_state) + lora_b @ lora_a + 1e-9
+                            gradient_norm.append(torch.norm(grad_w / weight_w, p=1).item())
+                        elif self.config.grad_eval == "lora_per_l2":
+                            grad_w = lora_b @ lora_a.grad + lora_b.grad @ lora_a
+                            weight_w = bf.dequantize_fp4(module.base_layer.weight.data,
+                                                         module.base_layer.weight.quant_state) + lora_b @ lora_a + 1e-9
+                            gradient_norm.append(torch.norm(grad_w / weight_w, p=2).item())
+                        else:
+                            raise f"grad_eval {self.config.grad_eval} not found"
                 gradient_norm = sum(gradient_norm) / len(gradient_norm)
                 layer_grad_norm_list.append(gradient_norm)
 

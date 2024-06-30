@@ -46,11 +46,14 @@ class FedClient:
                                                                        device=self.model.device)
                 output = self.model.forward(input_ids=input_ids, attention_mask=attention_mask)
 
-                if self.peft_alg == "p-tuning":
+                if self.peft_alg == "p-tuning" or self.peft_alg == "prompt-tuning":
                     prompt_len = self.model.prompt_encoder.default.embedding.num_embeddings
-                    shift_logits = output.logits[..., prompt_len:-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
-                elif self.peft_alg == "lora" or self.peft_alg == "prompt-tuning":
-                    shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
+                    shift_logits = output.logits[..., prompt_len:-1, :].contiguous().view(-1, output.logits.size(-1))
+                elif self.peft_alg == "lora":
+                    shift_logits = output.logits[..., :-1, :].contiguous().view(-1, output.logits.size(-1))
+                else:
+                    raise f"peft {self.config.peft} not found"
+
                 shift_labels = input_ids[..., 1:].contiguous().view(-1)
                 shift_mask = label_mask[..., 1:].contiguous().view(-1)
 
@@ -159,11 +162,13 @@ class LlmFedTrainer:
                                                                        device=self.model.device)
 
                 output = self.model.forward(input_ids, attention_mask)
-                if self.config.peft == "p-tuning":
+                if self.config.peft == "p-tuning" or self.config.peft == "prompt-tuning":
                     prompt_len = self.model.prompt_encoder.default.embedding.num_embeddings
-                    shift_logits = output.logits[..., prompt_len:-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
-                elif self.config.peft == "lora" or self.config.peft == "prompt-tuning":
-                    shift_logits = output.logits[..., :-1, :].contiguous().view(-1, self.tokenizer.vocab_size)
+                    shift_logits = output.logits[..., prompt_len:-1, :].contiguous().view(-1, output.logits.size(-1))
+                elif self.config.peft == "lora":
+                    shift_logits = output.logits[..., :-1, :].contiguous().view(-1, output.logits.size(-1))
+                else:
+                    raise f"peft {self.config.peft} not found"
                 shift_labels = input_ids[..., 1:].contiguous().view(-1)
                 shift_mask = label_mask[..., 1:].contiguous().view(-1)
 

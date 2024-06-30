@@ -1,6 +1,7 @@
 import torch
-from peft import LoraConfig, get_peft_model, PromptEncoderConfig, PrefixTuningConfig
-from transformers import BitsAndBytesConfig, AutoModelForCausalLM, LlamaTokenizer
+from peft import LoraConfig, get_peft_model, PromptEncoderConfig, PrefixTuningConfig, PromptTuningConfig, \
+    PromptEncoderReparameterizationType
+from transformers import BitsAndBytesConfig, AutoModelForCausalLM, LlamaTokenizer, AutoTokenizer
 
 
 def get_4bit_model(model_name, token, device):
@@ -33,6 +34,11 @@ def get_lora_model(model, lora_r=16):
 
 
 def get_ptuning_model(model):
+    if hasattr(model.config, "num_hidden_layers"):
+        num_layers = model.config.num_hidden_layers
+    else:
+        num_layers = model.config.num_layers
+
     config = PromptEncoderConfig(
         peft_type="P_TUNING",
         task_type="CAUSAL_LM",
@@ -40,7 +46,7 @@ def get_ptuning_model(model):
         token_dim=model.config.hidden_size,
         num_transformer_submodules=1,
         num_attention_heads=model.config.num_attention_heads,
-        num_layers=model.config.num_hidden_layers,
+        num_layers=num_layers,
         encoder_reparameterization_type="MLP",
         encoder_hidden_size=768,
     )
@@ -50,21 +56,27 @@ def get_ptuning_model(model):
 
 
 def get_prompt_model(model):
-    config = PrefixTuningConfig(
+    if hasattr(model.config, "num_hidden_layers"):
+        num_layers = model.config.num_hidden_layers
+    else:
+        num_layers = model.config.num_layers
+
+    config = PromptTuningConfig(
         peft_type="PROMPT_TUNING",
         task_type="CAUSAL_LM",
-        num_virtual_tokens=20,
+        num_virtual_tokens=40,
         token_dim=model.config.hidden_size,
         num_transformer_submodules=1,
         num_attention_heads=model.config.num_attention_heads,
-        num_layers=model.config.num_hidden_layers
+        num_layers=num_layers
     )
     model = get_peft_model(model, config)
     return model
 
 
 def get_tokenizer(model_name, token):
-    tokenizer = LlamaTokenizer.from_pretrained(model_name, trust_remote_code=True, token=token)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True, token=token)
+
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.sep_token = tokenizer.eos_token
     tokenizer.cls_token = tokenizer.eos_token
