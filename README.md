@@ -1,6 +1,7 @@
 # FedGPL: Gradient Priority-based Federated Learning Enhancement for In-Vehicle Language Models
 
-
+> **ACM Transactions on Autonomous and Adaptive Systems (TAAS) 2025**  
+> Paper: [FedGPL: Gradient Priority-based Federated Learning Enhancement for In-Vehicle Language Models](https://dl.acm.org/doi/abs/10.1145/3717835)
 
 This repository contains the code for training models using different federated learning algorithms. Below are the descriptions of the configurable parameters.
 
